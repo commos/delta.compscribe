@@ -7,6 +7,7 @@
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
                  [org.commos/delta "0.1.1"]]
   :source-paths ["target/generated/clj"]
+  :resource-paths ["target/generated/cljs"]
   :prep-tasks [["cljx" "once"] "javac" "compile"]
   :profiles {:dev {:aliases {"cleantest" ["do" "clean"
                                           ["cljx" "once"]
