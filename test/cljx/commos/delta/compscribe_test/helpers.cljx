@@ -51,7 +51,7 @@
        (when (@unsubscribable ch)
          (close! ch)
          (swap! unsubscribable disj ch)))
-     subs]))
+     [subs unsubscribable]]))
 
 (defn test-within
   "Throws if ch does not close or produce a value within ms. Returns a

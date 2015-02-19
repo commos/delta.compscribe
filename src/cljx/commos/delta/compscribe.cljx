@@ -153,7 +153,7 @@
                 (recur deltas
                        (update-in subs [:unsubs] into
                                   (map (partial conj ks) new-val))
-                       adjusted-deltas)
+                       (conj adjusted-deltas delta))
                 (recur deltas
                        (update-in subs [:unsubs] into
                                   (mapcat
