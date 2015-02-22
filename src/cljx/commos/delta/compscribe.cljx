@@ -127,7 +127,7 @@
                            (cond-> adjusted-deltas
                              (seq new-val)
                              (conj
-                              (delta/normalized-delta [:is ks new-val])))))
+                              (delta/summable-delta [:is ks new-val])))))
                   (recur deltas
                          subs
                          (conj adjusted-deltas delta))))
