@@ -113,24 +113,25 @@
       (let [[op ks new-val] (delta/diagnostic-delta delta)
             hook (get direct-hooks ks)]
         (case op
-          :is (if hook
-                (recur deltas
-                       (-> subs
-                           (assoc-in [:subs-one ks] new-val)
-                           (update-in [:unsubs] conj ks))
-                       adjusted-deltas)
-                (if (associative? new-val)
-                  (let [[subs new-val]
-                        (nested-subs subs deep-hooks ks new-val)]
+          :is (let [[new-val] new-val]
+                (if hook
+                  (recur deltas
+                         (-> subs
+                             (assoc-in [:subs-one ks] new-val)
+                             (update-in [:unsubs] conj ks))
+                         adjusted-deltas)
+                  (if (associative? new-val)
+                    (let [[subs new-val]
+                          (nested-subs subs deep-hooks ks new-val)]
+                      (recur deltas
+                             subs
+                             (cond-> adjusted-deltas
+                               (seq new-val)
+                               (conj
+                                (delta/summable-delta [:is ks [new-val]])))))
                     (recur deltas
                            subs
-                           (cond-> adjusted-deltas
-                             (seq new-val)
-                             (conj
-                              (delta/summable-delta [:is ks new-val])))))
-                  (recur deltas
-                         subs
-                         (conj adjusted-deltas delta))))
+                           (conj adjusted-deltas delta)))))
           :in (if hook
                 (recur deltas
                        (update-in subs [:subs-many ks] into new-val)

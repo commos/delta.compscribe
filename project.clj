@@ -1,4 +1,4 @@
-(defproject org.commos/delta.compscribe "0.1.4"
+(defproject org.commos/delta.compscribe "0.1.5"
   :description "Stream and combine commos.deltas from multiple endpoints"
   :url "http://github.com/commos/delta.compscribe"
   :license {:name "Eclipse Public License"
@@ -7,7 +7,7 @@
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
                  
                  [org.commos/shared "0.1.0"]
-                 [org.commos/delta "0.2.1"]]
+                 [org.commos/delta "0.2.2"]]
   :source-paths ["target/generated/clj"]
   :resource-paths ["target/generated/cljs"]
   :prep-tasks [["cljx" "once"] "javac" "compile"]
