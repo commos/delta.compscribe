@@ -1,25 +1,25 @@
 (ns commos.delta.compscribe-test
-  (:require #+clj [clojure.test :refer :all]
+  (:require #?@(:clj [[clojure.test :refer :all]
+                      [clojure.core.async
+                       :refer [go go-loop
+                               chan close!
+                               >! <!
+                               put!
+                               timeout]
+                       :as a]]
+                :cljs [[cljs.test :refer-macros [is deftest]]
+                       [cljs.core.async
+                       :refer [chan close!
+                               >! <!
+                               put! take!
+                               timeout]
+                       :as a]])
             [commos.delta.compscribe-test.helpers :refer [simulate-api
                                                           test-within
                                                           test-async]]
-            #+clj [clojure.core.async
-                   :refer [go go-loop
-                           chan close!
-                           >! <!
-                           put!
-                           timeout]
-                   :as a]
-            #+cljs [cljs.core.async
-                    :refer [chan close!
-                            >! <!
-                            put! take!
-                            timeout]
-                    :as a]
             [commos.delta.compscribe :refer [compscribe]]
-            [commos.delta :as delta]
-            #+cljs [cljs.test :refer-macros [is deftest]])
-  #+cljs (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+            [commos.delta :as delta])
+  #?(:cljs (:require-macros [cljs.core.async.macros :refer [go go-loop]])))
 
 (deftest compscribe-root
   (let [[subs-fn unsubs-fn [subscriptions unsubscribable]]

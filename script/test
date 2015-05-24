@@ -2,5 +2,5 @@
 
 set -ex
 cd `dirname $0`/..
-lein do clean, cljx once, cljsbuild once
+lein do clean, cljsbuild once
 node script/run-tests.js

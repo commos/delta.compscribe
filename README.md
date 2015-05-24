@@ -1,18 +1,18 @@
 # commos.delta.compscribe
 
-`[org.commos/delta.compscribe "0.1.5"]` can be used to stream and combine [commos.deltas](http://github.com/commos/delta) from multiple endpoints to one value.
+`[org.commos/delta.compscribe "0.1.6"]` can be used to stream and combine [commos.deltas](http://github.com/commos/delta) from multiple endpoints to one value.
 
-It is compatible with Clojure (v. 1.7.0-alpha5) and ClojureScript and depends on core.async.
-
+It is compatible with Clojure (v. 1.7.0-RC1), ClojureScript and depends on core.async.
+o
 ## Usage
 
-TODO
+At the time please refer to the docstring of the commos.delta.compscribe/compscribe function.
 
 ## Testing
 
 ### Clojure
 
-Run `lein cleantest`.
+Due to Leiningens test task not supporting cljc yet, please run tests from the REPL.
 
 ### ClojureScript
 

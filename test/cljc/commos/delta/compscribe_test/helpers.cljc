@@ -1,16 +1,16 @@
 (ns commos.delta.compscribe-test.helpers
-  (:require [#+clj clojure.core.async.impl.protocols
-             #+cljs cljs.core.async.impl.protocols :refer [Channel]]
-            #+clj [clojure.core.async :refer [chan close!
-                                              <! >! <!!
-                                              go-loop go
-                                              alts! timeout]]
-            #+cljs [cljs.core.async :refer [chan close!
-                                            <! >! take!
-                                            timeout alts!]]
-            #+cljs [cljs.test])
-  #+cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]]
-                          [cljs.test :refer [async]]))
+  (:require [#?(:clj clojure.core.async.impl.protocols
+                :cljs cljs.core.async.impl.protocols) :refer [Channel]]
+            #?@(:clj [[clojure.core.async :refer [chan close!
+                                                  <! >! <!!
+                                                  go-loop go
+                                                  alts! timeout]]]
+                :cljs [[cljs.core.async :refer [chan close!
+                                                <! >! take!
+                                                timeout alts!]]
+                       [cljs.test]]))
+  #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]]
+                            [cljs.test :refer [async]])))
 
 (defn- chan?
   [x]
@@ -66,8 +66,8 @@
 (defn test-async
   "Asynchronous test awaiting ch to produce a value or close."
   [ch]
-  #+clj
-  (<!! ch)
-  #+cljs
-  (async done
-    (take! ch (fn [_] (done)))))
+  #?(:clj
+     (<!! ch)
+     :cljs
+     (async done
+       (take! ch (fn [_] (done))))))

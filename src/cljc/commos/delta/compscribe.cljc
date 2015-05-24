@@ -1,17 +1,17 @@
 (ns commos.delta.compscribe
   (:require [commos.delta :as delta]
-            #+clj [clojure.core.async :refer [chan close!
+            #?(:clj [clojure.core.async :refer [chan close!
+                                                <! >!
+                                                put!
+                                                alts!
+                                                go go-loop]]
+               :cljs [cljs.core.async :refer [chan close!
                                               <! >!
                                               put!
-                                              alts!
-                                              go go-loop]]
-            #+cljs [cljs.core.async :refer [chan close!
-                                            <! >!
-                                            put!
-                                            alts!]]
+                                              alts!]])
             [clojure.walk :refer [prewalk postwalk]]
             [commos.shared.core :refer [flatten-keys]])
-  #+cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]]))
+  #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]])))
 
 (defn- vsplit-at
   "Like split-at, but for vectors."
