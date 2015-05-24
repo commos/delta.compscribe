@@ -117,7 +117,10 @@
                 (if hook
                   (recur deltas
                          (-> subs
-                             (assoc-in [:subs-one ks] new-val)
+                             (assoc-in [(if (set? new-val)
+                                          :subs-many
+                                          :subs-one) ks]
+                                       new-val)
                              (update-in [:unsubs] conj ks))
                          adjusted-deltas)
                   (if (associative? new-val)

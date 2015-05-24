@@ -25,7 +25,7 @@
   (let [[subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in 0]]}}
+          {:deltas {0 [[:is #{0}]]}}
           "/bar/"
           {:deltas {0 [[:is :bar 42]]}}})
         target (chan)
