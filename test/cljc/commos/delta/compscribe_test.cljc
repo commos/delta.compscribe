@@ -95,17 +95,17 @@
            (is (= r
                   {:bar {0 {:baz 42}}}))))))))
 
-(deftest uncompscribe
+(deftest uncompscribe-root
   (let [foo-complete (chan)
-        bar-block (chan)
+        unsubs-bar (chan)
         [subs-fn unsubs-fn [subscriptions unsubscribable]] (simulate-api
                                            {"/foo/"
                                             {:deltas {0 [[:in 0]
                                                          [:ex 0]
                                                          foo-complete]}}
                                             "/bar/"
-                                            {:deltas {0 [bar-block
-                                                         [:is :bar 42]]}}})
+                                            {:deltas {0 [[:is :bar 42]]}
+                                             :on-unsubs unsubs-bar}})
         target (chan)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" ["/bar/"]]
@@ -113,11 +113,30 @@
     (test-async
      (test-within 1000
        (go
-         (>! foo-complete true)
-         (<! (timeout 100)) ;; during to the buffered intermediate
-                            ;; channels, we don't have a guarantee
-                            ;; that foo is pushed completely
-         (close! bar-block)
-         
-         (is (empty? (reduce delta/add nil (<! (a/into [] target)))))
-         (is (empty? @unsubscribable)))))))
+         (is (= 0 (<! unsubs-bar)))
+         (close! foo-complete)
+                  
+         (is (empty? (reduce delta/add nil (<! (a/into [] target))))))))))
+
+(deftest uncompscribe-one
+  (let [foo-complete (chan)
+        unsubs-bar (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
+        (simulate-api
+         {"/foo/"
+          {:deltas {0 [[:is :bar 0]
+                       [:ex :bar]
+                       foo-complete]}}
+          "/bar/"
+          {:deltas {0 [[:is :baz 42]]}
+           :on-unsubs unsubs-bar}})
+        target (chan)
+        end-subscription (compscribe target subs-fn unsubs-fn
+                                     ["/foo/" {:bar ["/bar/"]}]
+                                     0)]
+    (test-async
+     (test-within 1000
+       (go
+         (is (= 0 (<! unsubs-bar)))
+         (close! foo-complete)
+         (is (empty? (reduce delta/add nil (<! (a/into [] target))))))))))
