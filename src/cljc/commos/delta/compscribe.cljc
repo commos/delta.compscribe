@@ -156,7 +156,7 @@
                                          ks
                                          (if-let [nested (get deep-hooks ks)]
                                            (map second nested)))))
-                                        new-val))
+                                   new-val))
                        (conj adjusted-deltas delta)))))
       [subs (delta/pack adjusted-deltas)])))
 
