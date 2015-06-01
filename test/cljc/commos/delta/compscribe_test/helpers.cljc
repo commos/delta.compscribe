@@ -8,7 +8,9 @@
                 :cljs [[cljs.core.async :refer [chan close! put!
                                                 <! >! take!
                                                 timeout alts!]]
-                       [cljs.test]]))
+                       [cljs.test]])
+            #?@(:clj [[clojure.test :refer :all]]
+                :cljs [[cljs.test :refer-macros [is deftest]]]))
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]]
                             [cljs.test :refer [async]])))
 
@@ -57,13 +59,13 @@
      [subs unsubscribable]]))
 
 (defn test-within
-  "Throws if ch does not close or produce a value within ms. Returns a
+  "Asserts that ch does not close or produce a value within ms. Returns a
   channel from which the value can be taken."
   [ms ch]
   (go (let [t (timeout ms)
             [v ch] (alts! [ch t])]
-        (assert (not= ch t)
-                (str "Test should have finished within " ms "ms."))
+        (is (not= ch t)
+            (str "Test should have finished within " ms "ms."))
         v)))
 
 (defn test-async
