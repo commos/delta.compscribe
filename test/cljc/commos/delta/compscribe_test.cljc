@@ -114,5 +114,10 @@
      (test-within 1000
        (go
          (>! foo-complete true)
+         (<! (timeout 100)) ;; during to the buffered intermediate
+                            ;; channels, we don't have a guarantee
+                            ;; that foo is pushed completely
          (close! bar-block)
-         (is (empty? (reduce delta/add nil (<! (a/into [] target))))))))))
+         
+         (is (empty? (reduce delta/add nil (<! (a/into [] target)))))
+         (is (empty? @unsubscribable)))))))
