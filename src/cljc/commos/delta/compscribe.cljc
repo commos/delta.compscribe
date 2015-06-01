@@ -153,7 +153,7 @@
                                    (fn [k]
                                      (let [ks (conj ks k)]
                                        (if (contains? direct-hooks ks)
-                                         ks
+                                         [ks]
                                          (if-let [nested (get deep-hooks ks)]
                                            (map second nested)))))
                                    new-val))
