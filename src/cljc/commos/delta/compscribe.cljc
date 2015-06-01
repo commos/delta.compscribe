@@ -214,9 +214,10 @@
         target-mix (closing-mix outer-target [target])
         subs (atom {})
         do-sub (fn [ks id many?]
-                 (let [xch (chan 1 (delta/nest (cond-> ks
-                                                 many? (conj id))))]
-                   (swap! subs assoc ks
+                 (let [ks' (cond-> ks
+                             many? (conj id))
+                       xch (chan 1 (delta/nest ks'))]
+                   (swap! subs assoc ks'
                           [xch (compscribe* xch
                                             subs-fn
                                             unsubs-fn
