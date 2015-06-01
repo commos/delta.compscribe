@@ -96,13 +96,16 @@
                   {:bar {0 {:baz 42}}}))))))))
 
 (deftest uncompscribe
-  (let [[subs-fn unsubs-fn [subscriptions unsubscribable]] (simulate-api
+  (let [foo-complete (chan)
+        bar-block (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]] (simulate-api
                                            {"/foo/"
                                             {:deltas {0 [[:in 0]
-                                                         (timeout 100)
-                                                         [:ex 0]]}}
+                                                         [:ex 0]
+                                                         foo-complete]}}
                                             "/bar/"
-                                            {:deltas {0 [[:is :bar 42]]}}})
+                                            {:deltas {0 [bar-block
+                                                         [:is :bar 42]]}}})
         target (chan)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" ["/bar/"]]
@@ -110,4 +113,6 @@
     (test-async
      (test-within 1000
        (go
+         (>! foo-complete true)
+         (close! bar-block)
          (is (empty? (reduce delta/add nil (<! (a/into [] target))))))))))
