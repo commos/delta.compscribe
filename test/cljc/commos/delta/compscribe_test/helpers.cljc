@@ -1,11 +1,11 @@
 (ns commos.delta.compscribe-test.helpers
   (:require [#?(:clj clojure.core.async.impl.protocols
                 :cljs cljs.core.async.impl.protocols) :refer [Channel]]
-            #?@(:clj [[clojure.core.async :refer [chan close!
+            #?@(:clj [[clojure.core.async :refer [chan close! put!
                                                   <! >! <!!
                                                   go-loop go
                                                   alts! timeout]]]
-                :cljs [[cljs.core.async :refer [chan close!
+                :cljs [[cljs.core.async :refer [chan close! put!
                                                 <! >! take!
                                                 timeout alts!]]
                        [cljs.test]]))
@@ -34,7 +34,7 @@
         unsubscribable (atom #{})]
     [(fn [endpoint value]
        (let [ch (chan)]
-         (swap! subs update-in [endpoint value] conj ch)
+         (swap! subs assoc ch [endpoint value])
          (when (= :close (get-in endpoints [endpoint :unsubs-mode]))
            (swap! unsubscribable conj ch ))
          (go-loop [[x & xs] (get-in endpoints
@@ -50,7 +50,10 @@
      (fn [ch]
        (when (@unsubscribable ch)
          (close! ch)
-         (swap! unsubscribable disj ch)))
+         (swap! unsubscribable disj ch))
+       (let [[endpoint id] (get @subs ch)]
+         (when-let [on-unsubs (get-in endpoints [endpoint :on-unsubs])]
+           (put! on-unsubs id))))
      [subs unsubscribable]]))
 
 (defn test-within
