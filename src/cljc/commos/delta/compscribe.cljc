@@ -80,7 +80,7 @@
   subscribed ids removed and subs has the extracted
   subscriptions/unsubscriptions merged onto it.
 
-  Pass nil a new-val to only get unsubscriptions."
+  Pass nil as new-val to only get unsubscriptions."
   [subs deep-hooks ks new-val]
   (reduce (fn [[subs new-val] [rks ks _]]
             (if-let [val (get-in new-val rks)]
@@ -123,7 +123,7 @@
                                        new-val)
                              (update-in [:unsubs] conj ks))
                          adjusted-deltas)
-                  (if (associative? new-val)
+                  (if (map? new-val)
                     (let [[subs new-val]
                           (nested-subs subs deep-hooks ks new-val)]
                       (recur deltas
