@@ -225,43 +225,41 @@
                                              id)])
                    ;; xch will be closed by the subscribed-composition
                    (mix-in target-mix xch)))
-        ch-in (subs-fn endpoint id)
-        
-        transport
-        (go-loop []
-          (if-some [delta (<! ch-in)]
-            (let [[{:keys [subs-one subs-many unsubs]} delta]
-                  (extract-hooks conformed-spec delta)
+        ch-in (subs-fn endpoint id)]
+    (go-loop []
+      (if-some [delta (<! ch-in)]
+        (let [[{:keys [subs-one subs-many unsubs]} delta]
+              (extract-hooks conformed-spec delta)
 
-                  subs-by-pks (group-by-pks @subs)]
-              (doseq [[ks [xch unsubs-fn]]
-                      (->> unsubs
-                           (mapcat (fn [ks]
-                                     (concat (->> (get subs-by-pks ks)
-                                                  (map rest))
-                                             (some-> (find @subs ks)
-                                                     (vector)))))
-                           distinct)]
-                (unsubs-fn)
-                (mix-out target-mix xch)
-                (vswap! subs dissoc ks))
+              subs-by-pks (group-by-pks @subs)]
+          (doseq [[ks [xch unsubs-fn]]
+                  (->> unsubs
+                       (mapcat (fn [ks]
+                                 (concat (->> (get subs-by-pks ks)
+                                              (map rest))
+                                         (some-> (find @subs ks)
+                                                 (vector)))))
+                       distinct)]
+            (unsubs-fn)
+            (mix-out target-mix xch)
+            (vswap! subs dissoc ks))
 
-              (when delta ;; (it is possible that all deltas got eaten up)
-                (>! target delta)) ;; Block until evt is put so that
-                                   ;; subscriptions are put after and
-                                   ;; unsubscriptions are in effect
-              
-              (doseq [[ks id] subs-one]
-                (do-sub ks id false))
+          (when delta ;; (it is possible that all deltas got eaten up)
+            (>! target delta)) ;; Block until evt is put so that
+                               ;; subscriptions are put after and
+                               ;; unsubscriptions are in effect
+          
+          (doseq [[ks id] subs-one]
+            (do-sub ks id false))
 
-              (doseq [[ks ids] subs-many
-                      id ids]
-                (do-sub ks id true))
-              (recur))
-            (do
-              (close! target) ;; implicit mix-out
-              (doseq [[_ unsubs-fn] (vals @subs)]
-                (unsubs-fn)))))]
+          (doseq [[ks ids] subs-many
+                  id ids]
+            (do-sub ks id true))
+          (recur))
+        (do
+          (close! target) ;; implicit mix-out
+          (doseq [[_ unsubs-fn] (vals @subs)]
+            (unsubs-fn)))))
     (fn [] (unsubs-fn ch-in))))
 
 (defn compscribe
