@@ -293,8 +293,7 @@
   return a unique core.async channel from which deltas can be taken.
 
   unsubs-fn may be invoked with the channel returned from subs-fn. It
-  must close the channel and is not invoked if the channel is closed
-  elsewhere.
+  must close the channel.
 
   id is used to make an initial subscription at the root endpoint.
 
