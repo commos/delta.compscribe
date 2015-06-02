@@ -275,6 +275,9 @@
 
   spec-map is a map {(key (spec-map | spec))+}
 
+  A spec may only be used directly in a spec if endpoint streams a
+  set.
+
   Deltas are transformed according to the following rules:
 
   1. If the value at key is not a set, deltas are subscribed at the
