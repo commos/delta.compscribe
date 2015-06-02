@@ -231,9 +231,17 @@
         (go-loop []
           (if-some [delta (<! ch-in)]
             (let [[{:keys [subs-one subs-many unsubs]} delta]
-                  (extract-hooks conformed-spec delta)]
-              
-              (doseq [[ks [xch unsubs-fn]] (keep (partial find @subs) unsubs)]
+                  (extract-hooks conformed-spec delta)
+
+                  subs-by-pks (group-by-pks @subs)]
+              (doseq [[ks [xch unsubs-fn]]
+                      (->> unsubs
+                           (mapcat (fn [ks]
+                                     (concat (->> (get subs-by-pks ks)
+                                                  (map rest))
+                                             (some-> (find @subs ks)
+                                                     (vector)))))
+                           distinct)]
                 (unsubs-fn)
                 (mix-out target-mix xch)
                 (swap! subs dissoc ks))
