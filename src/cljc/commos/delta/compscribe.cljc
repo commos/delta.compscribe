@@ -262,6 +262,14 @@
             (unsubs-fn)))))
     (fn [] (unsubs-fn ch-in))))
 
+(defprotocol ISubscriptionService
+  (subscribe [this identifier]
+    "Return a core.async channel streaming commos deltas.  Each call
+    has to return a unique channel.")
+  (cancel [this ch]
+    "Asynchronously end the subscription associated with ch and close
+    ch."))
+
 (defn compscribe
   "Asynchronously subscribes via subs-fn and unsubs-fn at one or more
   endpoints, transforms received deltas so that they can be added to
@@ -289,16 +297,50 @@
   as ids and are transformed to assert a map {(id streamed-val)+} at
   key.
 
-  subs-fn is invoked with an endpoint and and id as arguments. It must
-  return a unique core.async channel from which deltas can be taken.
-
-  unsubs-fn may be invoked with the channel returned from subs-fn. It
-  must close the channel.
+  Subscriptions are made at service, an implementation of
+  ISubscriptionService, with [endpoint id] as identifier argument.
 
   id is used to make an initial subscription at the root endpoint.
 
   Returns a function that may be used to end all made subscriptions
   and close target-ch."
-  [target-ch subs-fn unsubs-fn spec id]
-  (let [conformed-spec (conform-spec spec)]
-    (compscribe* target-ch subs-fn unsubs-fn conformed-spec id)))
+  {:arglists '([target-ch service spec id])} 
+  ([target-ch service spec id]
+   (compscribe target-ch
+               (fn [endpoint id]
+                 (subscribe service [endpoint id]))
+               (fn [ch]
+                 (cancel service ch))))
+  ([target-ch subs-fn unsubs-fn spec id]
+   (let [conformed-spec (conform-spec spec)] ;; could allow compiled
+                                             ;; spec by checking for
+                                             ;; ::spec metadata
+     (compscribe* target-ch subs-fn unsubs-fn conformed-spec id))))
+
+(defn compscriber
+  "Returns a service that compscribes at service, a service compatible
+  with compscribe, according to specs, a map {(key spec)+}.
+  Subscriptions can be made with [key id]."
+  [service specs]
+  (let [subscriptions (atom {})]
+    (reify ISubscriptionService
+      (subscribe [_ identifier]
+        (let [[k id] identifier
+              spec (get specs k)
+              target-ch (chan)]
+          (assert spec (str "Need spec at " k))
+          (swap! subscriptions
+                 assoc target-ch
+                 (compscribe target-ch service spec id))
+          target-ch))
+      (cancel [_ ch]
+        (let [unsubs-fn
+              (-> subscriptions
+                  (swap! (fn [subscriptions]
+                           (let [unsubs-fn (get subscriptions ch)]
+                             (vary-meta (dissoc subscriptions ch)
+                                        assoc :unsubs-fn unsubs-fn))))
+                  (meta)
+                  :unsubs-fn)]
+          (assert unsubs-fn "Need subscription to cancel.")
+          (unsubs-fn))))))
