@@ -264,26 +264,29 @@
 
 (defn compscribe
   "Asynchronously subscribes via subs-fn and unsubs-fn at one or more
-  endpoints, combines received deltas so that they can be added to one
-  combined value and puts them onto target-ch.
+  endpoints, transforms received deltas so that they can be added to
+  one combined value and puts them onto target-ch.
 
   Specify used endpoints and their desired nesting in spec so:
 
   [endpoint (spec-map | spec)?]
   
-  root-endpoint may be any value recognized by subs-fn. 
+  endpoint may be any value recognized by subs-fn. 
 
   spec-map is a map {(key (spec-map | spec))+}
 
-  Deltas are composed according to the following rules:
+  Deltas are transformed according to the following rules:
 
-  1. If the id at key is not a collection, it is replaced with the
-  deltas streamed from endpoint.
+  1. If the value at key is not a set, deltas are subscribed at the
+  endpoint of the associated spec (or nested spec-map) with the value
+  as id and are transformed to assert at key.
 
-  2. If the id at key is a collection, it is replaced with deltas that
-  add to a map {(id streamed-val)+} from endpoint.
+  2. If the value at key is a set, deltas are subscribed at the
+  endpoint of the associated spec (or nested spec-map) with its values
+  as ids and are transformed to assert a map {(id streamed-val)+} at
+  key.
 
-  subs-fn is invoked with an endpoint and an id as arguments. It must
+  subs-fn is invoked with an endpoint and and id as arguments. It must
   return a unique core.async channel from which deltas can be taken.
 
   unsubs-fn may be invoked with the channel returned from subs-fn. It
