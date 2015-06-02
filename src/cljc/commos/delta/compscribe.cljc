@@ -212,17 +212,17 @@
         ;; that mix-ins and mix-outs have synchronous effects
         target (chan)
         target-mix (closing-mix outer-target [target])
-        subs (atom {})
+        subs (volatile! {})
         do-sub (fn [ks id many?]
                  (let [ks' (cond-> ks
                              many? (conj id))
                        xch (chan 1 (delta/nest ks'))]
-                   (swap! subs assoc ks'
-                          [xch (compscribe* xch
-                                            subs-fn
-                                            unsubs-fn
-                                            (get direct-hooks ks)
-                                            id)])
+                   (vswap! subs assoc ks'
+                           [xch (compscribe* xch
+                                             subs-fn
+                                             unsubs-fn
+                                             (get direct-hooks ks)
+                                             id)])
                    ;; xch will be closed by the subscribed-composition
                    (mix-in target-mix xch)))
         ch-in (subs-fn endpoint id)
@@ -244,7 +244,7 @@
                            distinct)]
                 (unsubs-fn)
                 (mix-out target-mix xch)
-                (swap! subs dissoc ks))
+                (vswap! subs dissoc ks))
 
               (when delta ;; (it is possible that all deltas got eaten up)
                 (>! target delta)) ;; Block until evt is put so that
