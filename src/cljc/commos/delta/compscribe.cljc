@@ -262,10 +262,10 @@
             (unsubs-fn)))))
     (fn [] (unsubs-fn ch-in))))
 
-(defprotocol ISubscriptionService
-  (subscribe [this identifier]
-    "Return a core.async channel streaming commos deltas.  Each call
-    has to return a unique channel.")
+(defprotocol IStream
+  (subscribe [this identifier ch]
+    "Stream commos deltas on core.async channel ch.  Ch is expected to
+    be used with only one subscription.")
   (cancel [this ch]
     "Asynchronously end the subscription associated with ch and close
     ch."))
