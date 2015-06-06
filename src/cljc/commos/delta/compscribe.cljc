@@ -42,7 +42,7 @@
   (let [spec? #(::spec (meta %))
         mark-spec #(vary-meta % assoc ::spec true)]
     (cond-> spec
-      (spec? spec)
+      (not (spec? spec))
       (->> (mark-spec)
            (prewalk (fn [form]
                       (if (spec? form)
