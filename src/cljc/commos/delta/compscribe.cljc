@@ -203,9 +203,15 @@
             (close! target)))))
     m))
 
+(defprotocol IStream
+  (subscribe [this identifier ch]
+    "Stream commos deltas on core.async channel ch.  ch is expected to
+    be used with only one subscription.")
+  (cancel [this ch]
+    "Asynchronously end the subscription associated with ch and close
+    ch."))
+
 (defn- compscribe*
-  ;; NOTE: before replacing subs-fn and unsubs-fn with a protocol I want
-  ;; to reconsider whether they should return channels
   [outer-target subs-fn unsubs-fn
    [endpoint direct-hooks deep-hooks :as conformed-spec] id]
   (let [;; Once intercepted, events need to go through target-mix so
@@ -261,14 +267,6 @@
           (doseq [[_ unsubs-fn] (vals @subs)]
             (unsubs-fn)))))
     (fn [] (unsubs-fn ch-in))))
-
-(defprotocol IStream
-  (subscribe [this identifier ch]
-    "Stream commos deltas on core.async channel ch.  Ch is expected to
-    be used with only one subscription.")
-  (cancel [this ch]
-    "Asynchronously end the subscription associated with ch and close
-    ch."))
 
 (defn compscribe
   "Asynchronously subscribes via subs-fn and unsubs-fn at one or more
