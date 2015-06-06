@@ -33,16 +33,17 @@
              {}
              m))
 
-(defn- conform-spec
+(defn- compile-spec
   "Recursively transform spec [endpoint hooks] [endpoint
   flattened-keys-hooks flattened-keys-hooks-grouped-by-pks hooks].
   The resulting structure provides fast lookups required during live
   dispatch."
   [spec]
-  (let [mark-spec #(vary-meta % assoc ::spec? true)]
+  (let [spec? #(::spec (meta %))
+        mark-spec #(vary-meta % assoc ::spec true)]
     (->> (mark-spec spec)
          (prewalk (fn [form]
-                    (if (::spec? (meta form))
+                    (if (spec? form)
                       (let [[endpoint specs] form]
                         (mark-spec
                          (if (vector? specs)
@@ -53,7 +54,7 @@
                                                     (vals specs)))]))))
                       form)))
          (postwalk (fn [form]
-                     (if (::spec? (meta form))
+                     (if (spec? form)
                        (let [[endpoint specs] form]
                          [endpoint specs (group-by-pks specs)])
                        form))))))
