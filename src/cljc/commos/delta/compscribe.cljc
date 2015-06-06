@@ -37,27 +37,29 @@
   "Recursively transform spec [endpoint hooks] [endpoint
   flattened-keys-hooks flattened-keys-hooks-grouped-by-pks hooks].
   The resulting structure provides fast lookups required during live
-  dispatch."
+  dispatch.  Returns compiled spec untransformed."
   [spec]
   (let [spec? #(::spec (meta %))
         mark-spec #(vary-meta % assoc ::spec true)]
-    (->> (mark-spec spec)
-         (prewalk (fn [form]
-                    (if (spec? form)
-                      (let [[endpoint specs] form]
-                        (mark-spec
-                         (if (vector? specs)
-                           [endpoint {[] (mark-spec specs)}]
-                           (let [specs (flatten-keys specs)]
-                             [endpoint (zipmap (keys specs)
-                                               (map mark-spec
-                                                    (vals specs)))]))))
-                      form)))
-         (postwalk (fn [form]
-                     (if (spec? form)
-                       (let [[endpoint specs] form]
-                         [endpoint specs (group-by-pks specs)])
-                       form))))))
+    (cond->
+        (spec? spec)
+        (->> (mark-spec)
+             (prewalk (fn [form]
+                        (if (spec? form)
+                          (let [[endpoint specs] form]
+                            (mark-spec
+                             (if (vector? specs)
+                               [endpoint {[] (mark-spec specs)}]
+                               (let [specs (flatten-keys specs)]
+                                 [endpoint (zipmap (keys specs)
+                                                   (map mark-spec
+                                                        (vals specs)))]))))
+                          form)))
+             (postwalk (fn [form]
+                         (if (spec? form)
+                           (let [[endpoint specs] form]
+                             [endpoint specs (group-by-pks specs)])
+                           form)))))))
 
 (defn- dissoc-in
   ;; from org.clojure/core.incubator, copy & pasted due to lack of
