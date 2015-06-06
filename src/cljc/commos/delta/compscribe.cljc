@@ -58,7 +58,7 @@
            (postwalk (fn [form]
                        (if (spec? form)
                          (let [[endpoint specs] form]
-                           [endpoint specs (group-by-pks specs)])
+                           (conj form (group-by-pks specs)))
                          form)))))))
 
 (defn- dissoc-in
