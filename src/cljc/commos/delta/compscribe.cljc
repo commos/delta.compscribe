@@ -295,6 +295,11 @@
     (pipe source watch-ch)
     (pipe watch-ch target)))
 
+(defn- wrap-on-close
+  [target on-close]
+  (doto (chan)
+    (wrap-on-close target on-close)))
+
 
 
 (defn compscribe
