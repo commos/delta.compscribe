@@ -309,7 +309,7 @@
   [service cached-service]
   (vary-meta service assoc ::cached-service cached-service))
 
-(defn- this-cached
+(defn- cached
   [service]
   (::cached-service (meta service) service))
 
@@ -334,7 +334,7 @@
           (swap! subscriptions assoc target
                  (vary-meta (compscribe* subs-target
                                          source-service
-                                         (this-cached this)
+                                         (cached this)
                                          spec
                                          id)
                             assoc ::identifier identifier))))))
