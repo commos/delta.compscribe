@@ -418,7 +418,7 @@
   "Caches on endpoints.  Sends the current sum to a new subscriber,
   continues with deltas."
   [service]
-  (cached-service service sum-and-delta sum-then-deltas))
+  (cached-service service sum-and-delta first-then-second))
 
 (defn compscriber
   [service]
