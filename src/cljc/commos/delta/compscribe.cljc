@@ -4,11 +4,13 @@
                                                 <! >!
                                                 put!
                                                 alts!
+                                                pipe
                                                 go go-loop]]
                :cljs [cljs.core.async :refer [chan close!
                                               <! >!
                                               put!
-                                              alts!]])
+                                              alts!
+                                              pipe]])
             [clojure.walk :refer [prewalk postwalk]]
             [commos.shared.core :refer [flatten-keys]])
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]])))
