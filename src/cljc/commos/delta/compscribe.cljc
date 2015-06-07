@@ -281,18 +281,18 @@
       (meta)
       ::swapped-out))
 
-(defn- wrap-on-close
-  "Returns a channel that transports from source, but invokes on-close
-  when source has closed."
-  [source on-close]
-  (let [target (chan 1 (fn [rf]
-                         (completing rf
-                                     (fn [result]
-                                       (on-close)
-                                       (rf result)))))]
+(defn- on-close-pipe
+  "Like pipe, but invokes on-close when source closes."
+  [source target on-close]
+  (let [watch-ch (chan 1 (fn [rf]
+                           (completing rf
+                                       (fn [result]
+                                         (on-close)
+                                         (rf result)))))]
 
-    (pipe source target)
-    target))
+    (pipe source watch-ch)
+    (pipe watch-ch target)))
+
 
 
 (defn compscribe
