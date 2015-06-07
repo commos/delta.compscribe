@@ -217,7 +217,7 @@
     ch."))
 
 (defn- compscribe*
-  [outer-target subs-fn unsubs-fn
+  [outer-target source-service compscribe-service
    [endpoint direct-hooks deep-hooks :as conformed-spec] id]
   (let [;; Once intercepted, events need to go through target-mix so
         ;; that mix-ins and mix-outs have synchronous effects
@@ -228,22 +228,22 @@
                  (let [ks' (cond-> ks
                              many? (conj id))
                        xch (chan 1 (delta/nest ks'))]
-                   (vswap! subs assoc ks'
-                           [xch (compscribe* xch
-                                             subs-fn
-                                             unsubs-fn
-                                             (get direct-hooks ks)
-                                             id)])
+                   (subscribe compscribe-service
+                              [(get direct-hooks ks) id]
+                              xch)
+                   (vswap! subs assoc ks' xch)
                    ;; xch will be closed by the subscribed-composition
                    (mix-in target-mix xch)))
-        ch-in (subs-fn endpoint id)]
+        ch-in (chan)]
+    (subscribe source-service [endpoint id] ch-in)
     (go-loop []
       (if-some [delta (<! ch-in)]
         (let [[{:keys [subs-one subs-many unsubs]} delta]
               (extract-hooks conformed-spec delta)
 
               subs-by-pks (group-by-pks @subs)]
-          (doseq [[ks [xch unsubs-fn]]
+          #_(println delta conformed-spec [subs-one subs-many unsubs])
+          (doseq [[ks xch]
                   (->> unsubs
                        (mapcat (fn [ks]
                                  (concat (->> (get subs-by-pks ks)
@@ -251,7 +251,7 @@
                                          (some-> (find @subs ks)
                                                  (vector)))))
                        distinct)]
-            (unsubs-fn)
+            (cancel compscribe-service xch)
             (mix-out target-mix xch)
             (vswap! subs dissoc ks))
 
@@ -269,9 +269,10 @@
           (recur))
         (do
           (close! target) ;; implicit mix-out
-          (doseq [[_ unsubs-fn] (vals @subs)]
-            (unsubs-fn)))))
-    (fn [] (unsubs-fn ch-in))))
+          (doseq [xch (vals @subs)]
+            (cancel compscribe-service xch)))))
+    (fn [] (cancel source-service ch-in))))
+
 (defn- swap-out!
   "Atomically dissocs k in atom, returns k"
   [atom k]
@@ -302,6 +303,57 @@
   (doto (chan)
     (on-close-pipe target on-close)))
 
+(defrecord CompscribeService [cached-service source-service subscriptions]
+  IStream
+  (subscribe [this identifier target]
+    (let [[spec id] identifier
+          [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
+          subs-target (wrap-on-close target #(cancel this target))]
+      (if (and (empty? direct-hooks)
+               (empty? deep-hooks))
+        ;; OPT: If there is nothing to compscribe, directly reach
+        ;; through to the source-service:
+        (do
+          #_(println "subscribing directly" identifier)
+          (subscribe source-service [endpoint id] subs-target)
+          (swap! subscriptions assoc target
+                 (vary-meta #(cancel source-service subs-target)
+                            assoc ::identifier identifier)))
+        (do
+          #_(println "subscribing" identifier)
+          (swap! subscriptions assoc target
+                 (vary-meta (compscribe* subs-target
+                                         source-service
+                                         cached-service
+                                         spec
+                                         id)
+                            assoc ::identifier identifier))))))
+  (cancel [this target]
+    (when-let [unsubs-fn (swap-out! subscriptions target)]
+      #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
+      (unsubs-fn))))
+
+(defn compscriber
+  [service]
+  (let [service (map->CompscribeService {:source-service service
+                                         :subscriptions (atom {})})
+        service (reify
+                  IStream
+                  (subscribe [this identifier target]
+                    (-> service
+                        (assoc :cached-service this)
+                        (subscribe identifier target)))
+                  (cancel [this target]
+                    (cancel service target)))
+        compile-spec (memoize compile-spec)]
+    (reify
+      IStream
+      (subscribe [_ identifier target]
+        (subscribe service 
+                   (update identifier 0 compile-spec)
+                   target))
+      (cancel [_ target]
+        (cancel service target)))))
 
 (defn compscribe
   "Asynchronously subscribes via subs-fn and unsubs-fn at one or more
@@ -330,8 +382,8 @@
   as ids and are transformed to assert a map {(id streamed-val)+} at
   key.
 
-  Subscriptions are made at service, an implementation of
-  ISubscriptionService, with [endpoint id] as identifier argument.
+  Subscriptions are made at service, which has to implement IStream,
+  with [endpoint id] as identifier argument.
 
   id is used to make an initial subscription at the root endpoint.
 
@@ -339,13 +391,19 @@
   and close target-ch."
   {:arglists '([target-ch service spec id])} 
   ([target-ch service spec id]
-   (compscribe target-ch
-               (fn [endpoint id]
-                 (subscribe service [endpoint id]))
-               (fn [ch]
-                 (cancel service ch))))
+   (let [service (compscriber service)]
+     (subscribe service [spec id] target-ch)))
   ([target-ch subs-fn unsubs-fn spec id]
-   (let [conformed-spec (conform-spec spec)] ;; could allow compiled
-                                             ;; spec by checking for
-                                             ;; ::spec metadata
-     (compscribe* target-ch subs-fn unsubs-fn conformed-spec id))))
+   (compscribe target-ch
+               (let [chs (atom {})]
+                 (reify
+                   IStream
+                   (subscribe [this [endpoint id] target]
+                     (let [ch-in (subs-fn endpoint id)]
+                       (swap! chs assoc target ch-in)
+                       (on-close-pipe ch-in target
+                                      #(cancel this target))))
+                   (cancel [_ ch]
+                     (some-> (swap-out! chs ch)
+                             (unsubs-fn)))))
+               spec id)))
