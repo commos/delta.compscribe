@@ -296,6 +296,8 @@
     (pipe watch-ch target)))
 
 (defn- wrap-on-close
+  "Pipes a channel to target and returns it, on-close is invoked when
+  it is closed."
   [target on-close]
   (doto (chan)
     (wrap-on-close target on-close)))
