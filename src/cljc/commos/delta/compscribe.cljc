@@ -300,8 +300,7 @@
   it is closed."
   [target on-close]
   (doto (chan)
-    (wrap-on-close target on-close)))
-
+    (on-close-pipe target on-close)))
 
 
 (defn compscribe
