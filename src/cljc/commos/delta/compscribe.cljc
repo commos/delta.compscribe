@@ -335,6 +335,17 @@
       #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
       (unsubs-fn))))
 
+(def ^:private sum-xf
+  "Transducer that sums deltas and passes on [sum delta] for each
+  delta."
+  (fn [rf]
+    (let [sum (volatile! nil)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (rf result [(vswap! sum delta/add input) input]))))))
+
 (defn- hybrid-cache
   "Caches on endpoints.  Sends the current sum to a new subscriber,
   continues with deltas."
