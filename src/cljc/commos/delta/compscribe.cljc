@@ -343,7 +343,7 @@
       #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
       (unsubs-fn))))
 
-(def ^:private sum-xf
+(def ^:private sum-and-delta
   "Transducer that sums deltas and passes on [sum delta] for each
   delta."
   (fn [rf]
@@ -354,14 +354,24 @@
         ([result input]
          (rf result [(vswap! sum delta/add input) input]))))))
 
-(defn- hybrid-cache
-  "Caches on endpoints.  Sends the current sum to a new subscriber,
-  continues with deltas."
-  [service]
+(def ^:private sum-then-deltas
+  (fn [rf]
+    (let [done (volatile! false)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (if @done
+           (rf result (second input))
+           (do (vreset! done true)
+               (rf result (first input)))))))))
+
+(defn- cached-service
+  [service source-xf target-xf]
   (let [subscribe-ch (chan)
         cancel-ch (chan)]
     (go-loop [subs {}
-              ch->identifier {}]
+              chs {}]
       (let [[msg port] (alts! [subscribe-ch
                                cancel-ch])]
         (case port
@@ -369,38 +379,46 @@
           (let [[this identifier target] msg
                 [m :as cache]
                 (or (get subs identifier)
-                    (let [ch-in (chan)
+                    (let [ch-in (chan 1 source-xf)
                           m (mult ch-in)]
-                      (subscribe (assoc service :cached-service this)
+                      (subscribe (caching service this)
                                  identifier
                                  ch-in)
-                      [m #{} ch-in]))]
-            (tap m target)
+                      [m #{} ch-in]))
+                target-step (chan 1 target-xf)]
+            (pipe target-step target)
+            (tap m target-step)
             (recur (assoc subs identifier (update cache 1 conj target))
-                   (assoc ch->identifier target identifier)))
+                   (assoc chs target [identifier target-step])))
           cancel-ch
           (let [[this target] msg]
-            (if-let [identifier (get ch->identifier target)]
-              (let [[m chs ch-in :as cache] (get subs identifier)
-                    chs (disj chs target)
-                    ch->identifier (dissoc ch->identifier target)]
-                (untap m target)
-                (close! target)
-                (if (empty? chs)
+            (if-let [[identifier target-step] (get chs target)]
+              (let [[m m-chs ch-in :as cache] (get subs identifier)
+                    m-chs (disj m-chs target)
+                    chs (dissoc chs target)]
+                (untap m target-step)
+                (close! target-step)
+                (if (empty? m-chs)
                   (do
                     (cancel service ch-in)
                     (recur (dissoc subs identifier)
-                           ch->identifier))
-                  (recur (assoc subs identifier (assoc cache 1 chs))
-                         ch->identifier)))
+                           chs))
+                  (recur (assoc subs identifier (assoc cache 1 m-chs))
+                         chs)))
               (recur subs
-                     ch->identifier))))))
+                     chs))))))
     (reify
       IStream
       (subscribe [this identifier target]
         (put! subscribe-ch [this identifier target]))
       (cancel [this target]
         (put! cancel-ch [this target])))))
+
+(defn- hybrid-cache
+  "Caches on endpoints.  Sends the current sum to a new subscriber,
+  continues with deltas."
+  [service]
+  (cached-service service sum-and-delta sum-then-deltas))
 
 (defn compscriber
   [service]
