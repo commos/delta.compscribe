@@ -305,7 +305,15 @@
   (doto (chan)
     (on-close-pipe target on-close)))
 
-(defrecord CompscribeService [cached-service source-service subscriptions]
+(defn- caching
+  [service cached-service]
+  (vary-meta service assoc ::cached-service cached-service))
+
+(defn- this-cached
+  [service]
+  (::cached-service (meta service) service))
+
+(defrecord CompscribeService [source-service subscriptions]
   IStream
   (subscribe [this identifier target]
     (let [[spec id] identifier
@@ -326,7 +334,7 @@
           (swap! subscriptions assoc target
                  (vary-meta (compscribe* subs-target
                                          source-service
-                                         cached-service
+                                         (this-cached this)
                                          spec
                                          id)
                             assoc ::identifier identifier))))))
@@ -402,7 +410,7 @@
                   IStream
                   (subscribe [this identifier target]
                     (-> service
-                        (assoc :cached-service this)
+                        (caching this)
                         (subscribe identifier target)))
                   (cancel [this target]
                     (cancel service target)))
