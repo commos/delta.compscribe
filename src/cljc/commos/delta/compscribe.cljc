@@ -354,7 +354,7 @@
         ([result input]
          (rf result [(vswap! sum delta/add input) input]))))))
 
-(def ^:private sum-then-deltas
+(def ^:private first-then-second
   (fn [rf]
     (let [done (volatile! false)]
       (fn
