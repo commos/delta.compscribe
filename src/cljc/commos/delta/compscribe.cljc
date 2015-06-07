@@ -270,6 +270,17 @@
           (doseq [[_ unsubs-fn] (vals @subs)]
             (unsubs-fn)))))
     (fn [] (unsubs-fn ch-in))))
+(defn- swap-out!
+  "Atomically dissocs k in atom, returns k"
+  [atom k]
+  (-> atom
+      (swap! (fn [m]
+               (-> m
+                   (dissoc k)
+                   (vary-meta assoc ::swapped-out (get m k)))))
+      (meta)
+      ::swapped-out))
+
 
 (defn compscribe
   "Asynchronously subscribes via subs-fn and unsubs-fn at one or more
