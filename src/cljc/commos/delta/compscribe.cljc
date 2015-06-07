@@ -5,12 +5,14 @@
                                                 put!
                                                 alts!
                                                 pipe
-                                                go go-loop]]
+                                                go go-loop
+                                                mult tap untap]]
                :cljs [cljs.core.async :refer [chan close!
                                               <! >!
                                               put!
                                               alts!
-                                              pipe]])
+                                              pipe
+                                              mult tap untap]])
             [clojure.walk :refer [prewalk postwalk]]
             [commos.shared.core :refer [flatten-keys]])
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]])))
@@ -332,6 +334,54 @@
     (when-let [unsubs-fn (swap-out! subscriptions target)]
       #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
       (unsubs-fn))))
+
+(defn- hybrid-cache
+  "Caches on endpoints.  Sends the current sum to a new subscriber,
+  continues with deltas."
+  [service]
+  (let [subscribe-ch (chan)
+        cancel-ch (chan)]
+    (go-loop [subs {}
+              ch->identifier {}]
+      (let [[msg port] (alts! [subscribe-ch
+                               cancel-ch])]
+        (case port
+          subscribe-ch
+          (let [[this identifier target] msg
+                [m :as cache]
+                (or (get subs identifier)
+                    (let [ch-in (chan)
+                          m (mult ch-in)]
+                      (subscribe (assoc service :cached-service this)
+                                 identifier
+                                 ch-in)
+                      [m #{} ch-in]))]
+            (tap m target)
+            (recur (assoc subs identifier (update cache 1 conj target))
+                   (assoc ch->identifier target identifier)))
+          cancel-ch
+          (let [[this target] msg]
+            (if-let [identifier (get ch->identifier target)]
+              (let [[m chs ch-in :as cache] (get subs identifier)
+                    chs (disj chs target)
+                    ch->identifier (dissoc ch->identifier target)]
+                (untap m target)
+                (close! target)
+                (if (empty? chs)
+                  (do
+                    (cancel service ch-in)
+                    (recur (dissoc subs identifier)
+                           ch->identifier))
+                  (recur (assoc subs identifier (assoc cache 1 chs))
+                         ch->identifier)))
+              (recur subs
+                     ch->identifier))))))
+    (reify
+      IStream
+      (subscribe [this identifier target]
+        (put! subscribe-ch [this identifier target]))
+      (cancel [this target]
+        (put! cancel-ch [this target])))))
 
 (defn compscriber
   [service]
