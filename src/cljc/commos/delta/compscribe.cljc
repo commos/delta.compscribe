@@ -378,6 +378,7 @@
           (if (nil? v)
             (do
               (run! close! @chs)
+              (reset! chs nil)
               (recur cache
                      false))
             (do (when-let [chs (seq @chs)]
