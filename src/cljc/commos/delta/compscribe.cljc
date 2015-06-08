@@ -436,10 +436,9 @@
   "Caches on endpoints.  Sends the current sum to a new subscriber,
   continues with deltas."
   [service]
-  (cached-service service {:accumulate
-                           (fn [cache v]
-                             (update (or cache [:is]) 1
-                                     delta/add v))}))
+  (cached-service service (fn [cache v]
+                            (update (or cache [:is]) 1
+                                    delta/add v))))
 
 (defn compscriber
   [service]
