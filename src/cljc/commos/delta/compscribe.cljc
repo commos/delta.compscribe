@@ -355,7 +355,7 @@
         ([] (rf))
         ([result] (rf result))
         ([result input]
-         (rf result [(vswap! sum delta/add input) input]))))))
+         (rf result [[:is (vswap! sum delta/add input)] input]))))))
 
 (def ^:private first-then-second
   (fn [rf]
@@ -377,7 +377,8 @@
               chs {}]
       (let [[msg port] (alts! [subscribe-ch
                                cancel-ch])]
-        (case port
+        #_(println [msg port subscribe-ch cancel-ch])
+        (condp identical? port
           subscribe-ch
           (let [[this identifier target] msg
                 [m :as cache]
@@ -425,15 +426,9 @@
 
 (defn compscriber
   [service]
-  (let [service (compscribe-service service)
-        service (reify
-                  IStream
-                  (subscribe [this identifier target]
-                    (-> service
-                        (caching this)
-                        (subscribe identifier target)))
-                  (cancel [this target]
-                    (cancel service target)))
+  (let [service (-> service
+                    (compscribe-service)
+                    (hybrid-cache))
         compile-spec (memoize compile-spec)]
     (reify
       IStream
