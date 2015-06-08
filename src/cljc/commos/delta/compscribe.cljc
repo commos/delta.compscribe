@@ -1,18 +1,13 @@
 (ns commos.delta.compscribe
   (:require [commos.delta :as delta]
-            #?(:clj [clojure.core.async :refer [chan close!
-                                                <! >!
-                                                put!
-                                                alts!
-                                                pipe
-                                                go go-loop
-                                                mult tap untap]]
-               :cljs [cljs.core.async :refer [chan close!
-                                              <! >!
-                                              put!
-                                              alts!
-                                              pipe
-                                              mult tap untap]])
+            [#?(:clj clojure.core.async
+                :cljs cljs.core.async) :refer [chan close!
+                                               <! >!
+                                               put!
+                                               alts!
+                                               pipe
+                                               #?@(:clj [go go-loop])
+                                               mult tap untap] :as a]
             [clojure.walk :refer [prewalk postwalk]]
             [commos.shared.core :refer [flatten-keys]])
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]])))
