@@ -313,35 +313,38 @@
   [service]
   (::cached-service (meta service) service))
 
-(defrecord CompscribeService [source-service subscriptions]
-  IStream
-  (subscribe [this identifier target]
-    (let [[spec id] identifier
-          [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
-          subs-target (wrap-on-close target #(cancel this target))]
-      (if (and (empty? direct-hooks)
-               (empty? deep-hooks))
-        ;; OPT: If there is nothing to compscribe, directly reach
-        ;; through to the source-service:
-        (do
-          #_(println "subscribing directly" identifier)
-          (subscribe source-service [endpoint id] subs-target)
-          (swap! subscriptions assoc target
-                 (vary-meta #(cancel source-service subs-target)
-                            assoc ::identifier identifier)))
-        (do
-          #_(println "subscribing" identifier)
-          (swap! subscriptions assoc target
-                 (vary-meta (compscribe* subs-target
-                                         source-service
-                                         (cached this)
-                                         spec
-                                         id)
-                            assoc ::identifier identifier))))))
-  (cancel [this target]
-    (when-let [unsubs-fn (swap-out! subscriptions target)]
-      #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
-      (unsubs-fn))))
+(defn- compscribe-service
+  [source-service]
+  (let [subscriptions (atom {})]
+    (reify
+      IStream
+      (subscribe [this identifier target]
+        (let [[spec id] identifier
+              [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
+              subs-target (wrap-on-close target #(cancel this target))]
+          (if (and (empty? direct-hooks)
+                   (empty? deep-hooks))
+            ;; OPT: If there is nothing to compscribe, directly reach
+            ;; through to the source-service:
+            (do
+              #_(println "subscribing directly" identifier)
+              (subscribe source-service [endpoint id] subs-target)
+              (swap! subscriptions assoc target
+                     (vary-meta #(cancel source-service subs-target)
+                                assoc ::identifier identifier)))
+            (do
+              #_(println "subscribing" identifier)
+              (swap! subscriptions assoc target
+                     (vary-meta (compscribe* subs-target
+                                             source-service
+                                             (cached this)
+                                             spec
+                                             id)
+                                assoc ::identifier identifier))))))
+      (cancel [this target]
+        (when-let [unsubs-fn (swap-out! subscriptions target)]
+          #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
+          (unsubs-fn))))))
 
 (def ^:private sum-and-delta
   "Transducer that sums deltas and passes on [sum delta] for each
@@ -422,8 +425,7 @@
 
 (defn compscriber
   [service]
-  (let [service (map->CompscribeService {:source-service service
-                                         :subscriptions (atom {})})
+  (let [service (compscribe-service service)
         service (reify
                   IStream
                   (subscribe [this identifier target]
