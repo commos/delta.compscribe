@@ -400,23 +400,23 @@
                       (subscribe (caching service this)
                                  identifier
                                  ch-in)
-                      [m #{} ch-in]))
-                target (wrap-on-close target
-                                      #(cancel this target))]
+                      [m 0 ch-in]))
+                target-step (wrap-on-close target
+                                           #(cancel this target))]
             (println ["cache subscribing" identifier])
-            (tap m target)
-            (recur (assoc subs identifier (update cache 1 conj target))
-                   (assoc chs target identifier)))
+            (tap m target-step)
+            (recur (assoc subs identifier (update cache 1 inc))
+                   (assoc chs target [identifier target-step])))
           cancel-ch
           (let [[this target] msg]
-            (if-let [identifier (get chs target)]
+            (if-let [[identifier target-step] (get chs target)]
               (let [[m m-chs ch-in :as cache] (get subs identifier)
-                    m-chs (disj m-chs target)
+                    m-chs (dec m-chs)
                     chs (dissoc chs target)]
                 (println ["cache canceling" identifier])
-                (untap m target)
-                (close! target)
-                (if (empty? m-chs)
+                (untap m target-step)
+                (close! target-step)
+                (if (zero? m-chs)
                   (do
                     (cancel service ch-in)
                     (recur (dissoc subs identifier)
