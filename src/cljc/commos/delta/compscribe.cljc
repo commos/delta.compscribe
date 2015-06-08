@@ -7,7 +7,7 @@
                                                alts!
                                                pipe
                                                #?@(:clj [go go-loop])
-                                               mult tap untap] :as a]
+                                               tap untap] :as a]
             [clojure.walk :refer [prewalk postwalk]]
             [commos.shared.core :refer [flatten-keys]])
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]])))
@@ -341,31 +341,48 @@
           #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
           (unsubs-fn))))))
 
-(def ^:private sum-and-delta
-  "Transducer that sums deltas and passes on [sum delta] for each
-  delta."
-  (fn [rf]
-    (let [sum (volatile! nil)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (rf result [[:is (vswap! sum delta/add input)] input]))))))
-
-(def ^:private first-then-second
-  (fn [rf]
-    (let [done (volatile! false)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (if @done
-           (rf result (second input))
-           (do (vreset! done true)
-               (rf result (first input)))))))))
+(defn- caching-mult
+  [ch accumulate]
+  (let [tap-ch (chan)
+        chs (atom #{})
+        dctr (atom nil)
+        dchan (chan 1)
+        done (fn [_] (when (zero? (swap! dctr dec))
+                       (put! dchan true)))
+        m (reify
+            a/Mux
+            (muxch* [_] ch)
+            a/Mult
+            (tap* [_ ch close?]
+              (if close?
+                (put! tap-ch ch)
+                (throw (throw (UnsupportedOperationException.
+                               "close?=false not supported")))))
+            (untap* [_ ch]
+              (swap! chs disj ch))
+            (untap-all* [_] (throw (throw (UnsupportedOperationException.)))))]
+    (go-loop [cache nil]
+      (let [[v port] (alts! [tap-ch ch] :priority true)]
+        (condp identical? port
+          tap-ch
+          (do (when (or (nil? cache)
+                        (put! v cache))
+                (swap! chs conj v))
+              (recur cache))
+          ch
+          (if (nil? v)
+            (run! close! @chs)
+            (do (when-let [chs (seq @chs)]
+                  (reset! dctr (count chs))
+                  (doseq [ch chs]
+                    (when-not (put! ch v done)
+                      (a/untap* m ch)))
+                  (<! dchan))
+                (recur (accumulate cache v)))))))
+    m))
 
 (defn- cached-service
-  [service source-xf target-xf]
+  [service accumulate]
   (let [subscribe-ch (chan)
         cancel-ch (chan)]
     (go-loop [subs {}
@@ -378,25 +395,27 @@
           (let [[this identifier target] msg
                 [m :as cache]
                 (or (get subs identifier)
-                    (let [ch-in (chan 1 source-xf)
-                          m (mult ch-in)]
+                    (let [ch-in (chan)
+                          m (caching-mult ch-in accumulate)]
                       (subscribe (caching service this)
                                  identifier
                                  ch-in)
                       [m #{} ch-in]))
-                target-step (chan 1 target-xf)]
-            (pipe target-step target)
-            (tap m target-step)
+                target (wrap-on-close target
+                                      #(cancel this target))]
+            (println ["cache subscribing" identifier])
+            (tap m target)
             (recur (assoc subs identifier (update cache 1 conj target))
-                   (assoc chs target [identifier target-step])))
+                   (assoc chs target identifier)))
           cancel-ch
           (let [[this target] msg]
-            (if-let [[identifier target-step] (get chs target)]
+            (if-let [identifier (get chs target)]
               (let [[m m-chs ch-in :as cache] (get subs identifier)
                     m-chs (disj m-chs target)
                     chs (dissoc chs target)]
-                (untap m target-step)
-                (close! target-step)
+                (println ["cache canceling" identifier])
+                (untap m target)
+                (close! target)
                 (if (empty? m-chs)
                   (do
                     (cancel service ch-in)
@@ -417,7 +436,10 @@
   "Caches on endpoints.  Sends the current sum to a new subscriber,
   continues with deltas."
   [service]
-  (cached-service service sum-and-delta first-then-second))
+  (cached-service service {:accumulate
+                           (fn [cache v]
+                             (update (or cache [:is]) 1
+                                     delta/add v))}))
 
 (defn compscriber
   [service]
