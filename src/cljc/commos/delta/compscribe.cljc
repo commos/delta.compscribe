@@ -361,24 +361,33 @@
             (untap* [_ ch]
               (swap! chs disj ch))
             (untap-all* [_] (throw (throw (UnsupportedOperationException.)))))]
-    (go-loop [cache nil]
-      (let [[v port] (alts! [tap-ch ch] :priority true)]
+    (go-loop [cache nil
+              receiving? true]
+      (let [[v port] (alts! (cond-> [tap-ch]
+                              receiving? (conj ch)) :priority true)]
         (condp identical? port
           tap-ch
-          (do (when (or (nil? cache)
-                        (put! v cache))
-                (swap! chs conj v))
-              (recur cache))
+          (do (when (and (or (nil? cache)
+                             (>! v cache)))
+                (if receiving?
+                  (swap! chs conj v)
+                  (close! v)))
+              (recur cache
+                     receiving?))
           ch
           (if (nil? v)
-            (run! close! @chs)
+            (do
+              (run! close! @chs)
+              (recur cache
+                     false))
             (do (when-let [chs (seq @chs)]
                   (reset! dctr (count chs))
                   (doseq [ch chs]
                     (when-not (put! ch v done)
                       (a/untap* m ch)))
                   (<! dchan))
-                (recur (accumulate cache v)))))))
+                (recur (accumulate cache v)
+                       true))))))
     m))
 
 (defn- cached-service
