@@ -459,11 +459,70 @@
                            :mode :cache}))
 
 (defn compscriber
-  [service]
-  (let [service (-> service
-                    (hybrid-cache)
+  "Return a service that transforms subscriptions it makes at source,
+  an IStream implementation, so that they add up to one map.
+
+  When making a subscription, specify endpoints you want to use and
+  their desired nesting in spec so:
+
+  [endpoint (spec-map | spec)?]
+  (Another spec may only be used directly in a spec if endpoint
+  streams a set.)
+  
+  endpoint may be any value recognized by the source you pass.
+
+  spec-map is a map {(key (spec-map | spec))+}
+
+  1. If the value streamed at key is not a set, it is subscribed at
+  the specified endpoint and the subscription is transformed to assert
+  at key.
+
+  2. If the value streamed at key is a set, its elements are
+  subscribed at the specified endpoint and are transformed to assert a
+  map {(set-elem streamed-val)+} at key.
+
+  Service makes subscriptions at source, with
+
+  [endpoint (value | set-elem)] as spec argument.
+
+  You can make subscriptions at service with
+
+  [spec id?]
+
+  as the spec argument.
+
+  Example spec:
+
+  [\"users\" {:user/orders [\"orders\" {:order/invoice [\"invoices\"]
+                                        :order/item [\"items\"]}]
+              :user/cart [\"items\"]}]
+
+  Subscriptions are synchronized, meaning nested subscriptions are
+  streamed always after a delta that started them and never after a
+  delta that stopped them.
+
+  By default, the service caches on subscription identifiers both made
+  by the user and internally, using sum caching.  Thus compscribe
+  streams only :is deltas with the whole compscribed value.  Nested
+  values streamed by equal specs are (memory) identical.
+
+  Depending on your specs, the service may subscribe equal specs at
+  the source.  Passing a cached service is recommended.
+
+  Use the :cache opt for different caching behavior.
+
+  Opts:
+
+  :cache - A function transforming a service.  
+
+  At the time, :batch deltas are not recomposed to a whole if they
+  start nested subscriptions.  This means that a partial :batch delta
+  may be streamed before subscriptions derived from it are streamed."
+  [source & {:keys [cache] :as opts
+             :or {cache sum-cache}}]
+  (let [service (-> source
                     (compscribe-service)
-                    (sum-cache))
+                    (cache))
         compile-spec (memoize compile-spec)]
     (reify
       IStream
@@ -475,40 +534,9 @@
         (cancel service target)))))
 
 (defn compscribe
-  "Asynchronously subscribes via subs-fn and unsubs-fn at one or more
-  endpoints, transforms received deltas so that they can be added to
-  one combined value and puts them onto target-ch.
-
-  Specify used endpoints and their desired nesting in spec so:
-
-  [endpoint (spec-map | spec)?]
-  
-  endpoint may be any value recognized by subs-fn. 
-
-  spec-map is a map {(key (spec-map | spec))+}
-
-  A spec may only be used directly in a spec if endpoint streams a
-  set.
-
-  Deltas are transformed according to the following rules:
-
-  1. If the value at key is not a set, deltas are subscribed at the
-  endpoint of the associated spec (or nested spec-map) with the value
-  as id and are transformed to assert at key.
-
-  2. If the value at key is a set, deltas are subscribed at the
-  endpoint of the associated spec (or nested spec-map) with its values
-  as ids and are transformed to assert a map {(id streamed-val)+} at
-  key.
-
-  Subscriptions are made at service, which has to implement IStream,
-  with [endpoint id] as spec argument.
-
-  id is used to make an initial subscription at the root endpoint.
-
-  Returns a function that may be used to end all made subscriptions
-  and close target-ch."
-  {:arglists '([target-ch service spec id])} 
+  "Internally creates a compscribe service and makes the subscription
+  at specifier.  Useful for testing, uses default cache settings."
+  {:arglists '([target-ch service spec id])}
   ([target-ch service spec id]
    (let [service (compscriber service)]
      (subscribe service [spec id] target-ch)
