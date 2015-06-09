@@ -174,3 +174,62 @@
          (is (= 0 (<! unsubs-bar)))
          (close! foo-complete)
          (is (empty? (reduce delta/add nil (<! (a/into [] target))))))))))
+
+(deftest cache
+  (let [block-foo (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
+        (simulate-api
+         {"/foo/"
+          {:deltas {0 [[:in :a 0]
+                       [:in :b 0]
+                       block-foo]}}
+          "/bar/"
+          {:deltas {0 [[:is :baz 42]]}}})
+        target (chan 1 (comp delta/values
+                             (drop 1)))
+        end-subscription (compscribe target subs-fn unsubs-fn
+                                     ["/foo/" {:a ["/bar/"]
+                                               :b ["/bar/"]}]
+                                     0)]
+    (test-async
+     (test-within 1000
+       (go
+         (let [v (<! target)]
+           (is (= v
+                  {:a {0 {:baz 42}}
+                   :b {0 {:baz 42}}}))
+           (is (identical? (get-in v [:a 0])
+                           (get-in v [:b 0]))))
+         (close! block-foo))))))
+
+(deftest cache-nested
+  (let [block-foo (chan)
+        block-bar (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
+        (simulate-api
+         {"/foo/"
+          {:deltas {0 [[:in :a 0]
+                       [:in :b 0]
+                       block-foo]}}
+          "/bar/"
+          {:deltas {0 [[:is :baz 0]
+                       block-bar]}}
+          "/baz/"
+          {:deltas {0 [[:is 42]]}}})
+        target (chan 1 (comp delta/values
+                             (drop 1)))
+        end-subscription (compscribe target subs-fn unsubs-fn
+                                     ["/foo/" {:a ["/bar/" {:baz ["/baz/"]}]
+                                               :b ["/bar/" {:baz ["/baz/"]}]}]
+                                     0)]
+    (test-async
+     (test-within 1000
+       (go
+         (let [v (<! target)]
+           (is (= v
+                  {:a {0 {:baz 42}}
+                   :b {0 {:baz 42}}}))
+           (is (identical? (get-in v [:a 0])
+                           (get-in v [:b 0])))
+           (close! block-bar)
+           (close! block-foo)))))))
