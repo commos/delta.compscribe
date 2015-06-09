@@ -358,11 +358,11 @@
             (tap* [_ ch close?]
               (if close?
                 (put! tap-ch ch)
-                (throw (throw (UnsupportedOperationException.
-                               "close?=false not supported")))))
+                (throw (UnsupportedOperationException.
+                        "close?=false not supported"))))
             (untap* [_ ch]
               (swap! chs disj ch))
-            (untap-all* [_] (throw (throw (UnsupportedOperationException.)))))]
+            (untap-all* [_] (throw (UnsupportedOperationException.))))]
     (go-loop [cache nil
               receiving? true]
       (let [[v port] (alts! (cond-> [tap-ch]
