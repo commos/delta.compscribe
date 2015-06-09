@@ -22,78 +22,89 @@
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go go-loop]])))
 
 (deftest compscribe-root
-  (let [[subs-fn unsubs-fn [subscriptions unsubscribable]]
+  (let [block-foo (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:is #{0}]]}}
+          {:deltas {0 [[:is #{0}]
+                       block-foo]}}
           "/bar/"
           {:deltas {0 [[:is :bar 42]]}}})
-        target (chan)
+        target (chan 1 delta/values)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" ["/bar/"]]
                                      0)]
     (test-async
      (test-within 1000
        (go
-         (let [evts (<! (a/into [] target))]
-           (is (= evts
-                  [[:is [0 :bar] 42]]))))))))
+         (is (= (<! target)
+                {0 {:bar 42}}))
+         (close! block-foo))))))
 
 (deftest compscribe-one
-  (let [[subs-fn unsubs-fn [subscriptions unsubscribable]]
+  (let [block-foo (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:is :bar 0]]}}
+          {:deltas {0 [[:is :bar 0]
+                       block-foo]}}
           "/bar/"
           {:deltas {0 [[:is :baz 42]]}}})
-        target (chan)
+        target (chan 1 delta/values)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:bar ["/bar/"]}]
                                      0)]
     (test-async
      (test-within 1000
        (go
-         (let [evts (<! (a/into [] target))]
-           (is (= evts
-                  [[:is [:bar :baz] 42]]))))))))
+         (is (= (<! target)
+                {:bar {:baz 42}}))
+         (close! block-foo))))))
 
 (deftest compscribe-many
-  (let [[subs-fn unsubs-fn [subscriptions unsubscribable]]
+  (let [block-foo (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :bar 0]]}}
+          {:deltas {0 [[:in :bar 0]
+                       block-foo]}}
           "/bar/"
           {:deltas {0 [[:is :baz 42]]}}})
-        target (chan)
+        target (chan 1 delta/values)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:bar ["/bar/"]}]
                                      0)]
     (test-async
      (test-within 1000
        (go
-         (let [evts (<! (a/into [] target))]
-           (is (= evts
-                  [[:is [:bar 0 :baz] 42]]))))))))
+         (is (= (<! target)
+                {:bar {0 {:baz 42}}}))
+         (close! block-foo))))))
 
 (deftest compscribe-nested
-  (let [[subs-fn unsubs-fn [subscriptions unsubscribable]]
+  (let [block-foo (chan)
+        block-bar (chan)
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :bar 0]]}}
+          {:deltas {0 [[:in :bar 0]
+                       block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 0]]}}
+          {:deltas {0 [[:is :baz 0]
+                       block-bar]}}
           "/baz/"
           {:deltas {0 [[:is 42]]}}})
-        target (chan)
+        target (chan 1 delta/values)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:bar ["/bar/" {:baz ["/baz/"]}]}]
                                      0)]
     (test-async
      (test-within 1000
        (go
-         (let [r (reduce delta/add nil (<! (a/into [] target)))]
-           (is (= r
-                  {:bar {0 {:baz 42}}}))))))))
+         (is (= (<! target)
+                {:bar {0 {:baz 42}}}))
+         (close! block-bar)
+         (close! block-foo))))))
 
 (deftest uncompscribe-root
   (let [foo-complete (chan)
