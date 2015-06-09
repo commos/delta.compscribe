@@ -292,7 +292,7 @@
     (pipe source watch-ch)
     (pipe watch-ch target)))
 
-(defn- wrap-on-close
+(defn- on-close-source
   "Pipes a channel to target and returns it, on-close is invoked when
   it is closed."
   [target on-close]
@@ -315,7 +315,7 @@
       (subscribe [this spec target]
         (let [[spec id] spec
               [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
-              subs-target (wrap-on-close target #(cancel this target))]
+              subs-target (on-close-source target #(cancel this target))]
           (if (and (empty? direct-hooks)
                    (empty? deep-hooks))
             ;; OPT: If there is nothing to compscribe, directly reach
@@ -410,8 +410,8 @@
                                  spec
                                  ch-in)
                       [m 0 ch-in]))
-                target-step (wrap-on-close target
-                                           #(cancel this target))]
+                target-step (on-close-source target
+                                             #(cancel this target))]
             (tap m target-step)
             (recur (assoc subs spec (update cache 1 inc))
                    (assoc chs target [spec target-step])))
