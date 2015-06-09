@@ -342,7 +342,9 @@
           (unsubs-fn))))))
 
 (defn- caching-mult
-  [ch accumulate]
+  [ch {:keys [accumulate
+              mode]
+       :or {mode :value}}]
   (let [tap-ch (chan)
         chs (atom #{})
         dctr (atom nil)
@@ -381,18 +383,22 @@
               (reset! chs nil)
               (recur cache
                      false))
-            (do (when-let [chs (seq @chs)]
-                  (reset! dctr (count chs))
-                  (doseq [ch chs]
-                    (when-not (put! ch v done)
-                      (a/untap* m ch)))
-                  (<! dchan))
-                (recur (accumulate cache v)
-                       true))))))
+            (let [cache (accumulate cache v)
+                  v (case mode
+                      :cache cache
+                      :value v)]
+              (when-let [chs (seq @chs)]
+                (reset! dctr (count chs))
+                (doseq [ch chs]
+                  (when-not (put! ch v done)
+                    (a/untap* m ch)))
+                (<! dchan))
+              (recur cache
+                     true))))))
     m))
 
 (defn- cached-service
-  [service accumulate]
+  [service opts]
   (let [subscribe-ch (chan)
         cancel-ch (chan)]
     (go-loop [subs {}
@@ -406,14 +412,14 @@
                 [m :as cache]
                 (or (get subs identifier)
                     (let [ch-in (chan)
-                          m (caching-mult ch-in accumulate)]
+                          m (caching-mult ch-in opts)]
                       (subscribe (caching service this)
                                  identifier
                                  ch-in)
                       [m 0 ch-in]))
                 target-step (wrap-on-close target
                                            #(cancel this target))]
-            (println ["cache subscribing" identifier])
+            #_(println ["cache subscribing" identifier])
             (tap m target-step)
             (recur (assoc subs identifier (update cache 1 inc))
                    (assoc chs target [identifier target-step])))
@@ -423,7 +429,7 @@
               (let [[m m-chs ch-in :as cache] (get subs identifier)
                     m-chs (dec m-chs)
                     chs (dissoc chs target)]
-                (println ["cache canceling" identifier])
+                #_(println ["cache canceling" identifier])
                 (untap m target-step)
                 (close! target-step)
                 (if (zero? m-chs)
@@ -446,9 +452,12 @@
   "Caches on endpoints.  Sends the current sum to a new subscriber,
   continues with deltas."
   [service]
-  (cached-service service (fn [cache v]
-                            (update (or cache [:is]) 1
-                                    delta/add v))))
+  (cached-service service {:accumulate
+                           (fn [cache v]
+                             #_(println ["Hybrid cache processing"
+                                         [cache v]])
+                             (update (or cache [:is]) 1
+                                     delta/add v))}))
 
 (defn compscriber
   [service]
