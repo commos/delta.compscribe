@@ -535,7 +535,8 @@
 
 (defn compscribe
   "Internally creates a compscribe service and makes the subscription
-  at specifier.  Useful for testing, uses default cache settings."
+  at specifier.  Useful for testing, uses default cache settings,
+  returns a function to end subscription."
   {:arglists '([target-ch service spec id])}
   ([target-ch service spec id]
    (let [service (compscriber service)]
