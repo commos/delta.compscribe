@@ -177,6 +177,7 @@
 
 (deftest cache
   (let [block-foo (chan)
+        block-bar (chan)
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
@@ -184,7 +185,8 @@
                        [:in :b 0]
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 42]]}}})
+          {:deltas {0 [[:is :baz 42]
+                       block-bar]}}})
         target (chan 1 (comp delta/values
                              (drop 1)))
         end-subscription (compscribe target subs-fn unsubs-fn
@@ -200,6 +202,7 @@
                    :b {0 {:baz 42}}}))
            (is (identical? (get-in v [:a 0])
                            (get-in v [:b 0]))))
+         (close! block-bar)
          (close! block-foo))))))
 
 (deftest cache-nested
@@ -215,7 +218,7 @@
           {:deltas {0 [[:is :baz 0]
                        block-bar]}}
           "/baz/"
-          {:deltas {0 [[:is 42]]}}})
+          {:deltas {0 [[:is {:test-val 42}]]}}})
         target (chan 1 (comp delta/values
                              (drop 1)))
         end-subscription (compscribe target subs-fn unsubs-fn
@@ -227,8 +230,8 @@
        (go
          (let [v (<! target)]
            (is (= v
-                  {:a {0 {:baz 42}}
-                   :b {0 {:baz 42}}}))
+                  {:a {0 {:baz {:test-val 42}}}
+                   :b {0 {:baz {:test-val 42}}}}))
            (is (identical? (get-in v [:a 0])
                            (get-in v [:b 0])))
            (close! block-bar)
