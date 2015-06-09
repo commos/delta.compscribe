@@ -459,11 +459,24 @@
                              (update (or cache [:is]) 1
                                      delta/add v))}))
 
+(defn- sum-cache
+  "Caches on endpoints.  Sends the current sum to a new subscriber,
+  continues with sums."
+  [service]
+  (cached-service service {:accumulate
+                           (fn [cache v]
+                             #_(println ["Sum cache processing"
+                                         [cache v]])
+                             (update (or cache [:is]) 1
+                                     delta/add v))
+                           :mode :cache}))
+
 (defn compscriber
   [service]
   (let [service (-> service
+                    (hybrid-cache)
                     (compscribe-service)
-                    (hybrid-cache))
+                    (sum-cache))
         compile-spec (memoize compile-spec)]
     (reify
       IStream
