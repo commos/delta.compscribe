@@ -511,7 +511,8 @@
   {:arglists '([target-ch service spec id])} 
   ([target-ch service spec id]
    (let [service (compscriber service)]
-     (subscribe service [spec id] target-ch)))
+     (subscribe service [spec id] target-ch)
+     #(cancel service target-ch)))
   ([target-ch subs-fn unsubs-fn spec id]
    (compscribe target-ch
                (let [chs (atom {})]
