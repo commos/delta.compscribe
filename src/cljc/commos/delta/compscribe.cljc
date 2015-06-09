@@ -459,8 +459,9 @@
                            :mode :cache}))
 
 (defn compscriber
-  "Return a service that transforms subscriptions it makes at source,
-  an IStream implementation, so that they add up to one map.
+  "Return a service that makes, triggers and transforms subscriptions
+  at source, an IStream implementation, so that they add up to one
+  map.
 
   When making a subscription, specify endpoints you want to use and
   their desired nesting in spec so:
