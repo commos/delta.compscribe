@@ -206,7 +206,7 @@
     m))
 
 (defprotocol IStream
-  (subscribe [this identifier ch]
+  (subscribe [this spec ch]
     "Stream commos deltas on core.async channel ch.  ch is expected to
     be used with only one subscription.")
   (cancel [this ch]
@@ -239,7 +239,6 @@
               (extract-hooks conformed-spec delta)
 
               subs-by-pks (group-by-pks @subs)]
-          #_(println delta conformed-spec [subs-one subs-many unsubs])
           (doseq [[ks xch]
                   (->> unsubs
                        (mapcat (fn [ks]
@@ -313,8 +312,8 @@
   (let [subscriptions (atom {})]
     (reify
       IStream
-      (subscribe [this identifier target]
-        (let [[spec id] identifier
+      (subscribe [this spec target]
+        (let [[spec id] spec
               [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
               subs-target (wrap-on-close target #(cancel this target))]
           (if (and (empty? direct-hooks)
@@ -322,23 +321,18 @@
             ;; OPT: If there is nothing to compscribe, directly reach
             ;; through to the source-service:
             (do
-              #_(println "subscribing directly" identifier)
               (subscribe source-service [endpoint id] subs-target)
               (swap! subscriptions assoc target
-                     (vary-meta #(cancel source-service subs-target)
-                                assoc ::identifier identifier)))
+                     #(cancel source-service subs-target)))
             (do
-              #_(println "subscribing" identifier)
               (swap! subscriptions assoc target
-                     (vary-meta (compscribe* subs-target
-                                             source-service
-                                             (cached this)
-                                             spec
-                                             id)
-                                assoc ::identifier identifier))))))
+                     (compscribe* subs-target
+                                  source-service
+                                  (cached this)
+                                  spec
+                                  id))))))
       (cancel [this target]
         (when-let [unsubs-fn (swap-out! subscriptions target)]
-          #_(println "unsubscribing" (::identifier (meta unsubs-fn)))
           (unsubs-fn))))))
 
 (defn- caching-mult
@@ -405,46 +399,43 @@
               chs {}]
       (let [[msg port] (alts! [subscribe-ch
                                cancel-ch])]
-        #_(println [msg port subscribe-ch cancel-ch])
         (condp identical? port
           subscribe-ch
-          (let [[this identifier target] msg
+          (let [[this spec target] msg
                 [m :as cache]
-                (or (get subs identifier)
+                (or (get subs spec)
                     (let [ch-in (chan)
                           m (caching-mult ch-in opts)]
                       (subscribe (caching service this)
-                                 identifier
+                                 spec
                                  ch-in)
                       [m 0 ch-in]))
                 target-step (wrap-on-close target
                                            #(cancel this target))]
-            #_(println ["cache subscribing" identifier])
             (tap m target-step)
-            (recur (assoc subs identifier (update cache 1 inc))
-                   (assoc chs target [identifier target-step])))
+            (recur (assoc subs spec (update cache 1 inc))
+                   (assoc chs target [spec target-step])))
           cancel-ch
           (let [[this target] msg]
-            (if-let [[identifier target-step] (get chs target)]
-              (let [[m m-chs ch-in :as cache] (get subs identifier)
+            (if-let [[spec target-step] (get chs target)]
+              (let [[m m-chs ch-in :as cache] (get subs spec)
                     m-chs (dec m-chs)
                     chs (dissoc chs target)]
-                #_(println ["cache canceling" identifier])
                 (untap m target-step)
                 (close! target-step)
                 (if (zero? m-chs)
                   (do
                     (cancel service ch-in)
-                    (recur (dissoc subs identifier)
+                    (recur (dissoc subs spec)
                            chs))
-                  (recur (assoc subs identifier (assoc cache 1 m-chs))
+                  (recur (assoc subs spec (assoc cache 1 m-chs))
                          chs)))
               (recur subs
                      chs))))))
     (reify
       IStream
-      (subscribe [this identifier target]
-        (put! subscribe-ch [this identifier target]))
+      (subscribe [this spec target]
+        (put! subscribe-ch [this spec target]))
       (cancel [this target]
         (put! cancel-ch [this target])))))
 
@@ -454,8 +445,6 @@
   [service]
   (cached-service service {:accumulate
                            (fn [cache v]
-                             #_(println ["Hybrid cache processing"
-                                         [cache v]])
                              (update (or cache [:is]) 1
                                      delta/add v))}))
 
@@ -465,8 +454,6 @@
   [service]
   (cached-service service {:accumulate
                            (fn [cache v]
-                             #_(println ["Sum cache processing"
-                                         [cache v]])
                              (update (or cache [:is]) 1
                                      delta/add v))
                            :mode :cache}))
@@ -480,9 +467,9 @@
         compile-spec (memoize compile-spec)]
     (reify
       IStream
-      (subscribe [_ identifier target]
+      (subscribe [_ spec target]
         (subscribe service 
-                   (update identifier 0 compile-spec)
+                   (update spec 0 compile-spec)
                    target))
       (cancel [_ target]
         (cancel service target)))))
@@ -515,7 +502,7 @@
   key.
 
   Subscriptions are made at service, which has to implement IStream,
-  with [endpoint id] as identifier argument.
+  with [endpoint id] as spec argument.
 
   id is used to make an initial subscription at the root endpoint.
 
