@@ -7,7 +7,7 @@
                  [org.clojure/core.async "0.1.346.0-17112a-alpha"]
                  
                  [org.commos/shared "0.1.0"]
-                 [org.commos/delta "0.2.2"]]
+                 [org.commos/delta "0.3.0"]]
   :source-paths ["src/cljc"]
   :profiles {:dev {:dependencies [[org.clojure/clojurescript "0.0-3269"]]
                    :plugins [[lein-cljsbuild "1.0.6"]]

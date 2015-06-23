@@ -112,31 +112,30 @@
          subs {}
          adjusted-deltas []]
     (if delta
-      (let [[op ks new-val] (delta/diagnostic-delta delta)
+      (let [[op ks new-val] delta
             hook (get direct-hooks ks)]
         (case op
-          :is (let [[new-val] new-val]
-                (if hook
-                  (recur deltas
-                         (-> subs
-                             (assoc-in [(if (set? new-val)
-                                          :subs-many
-                                          :subs-one) ks]
-                                       new-val)
-                             (update-in [:unsubs] conj ks))
-                         adjusted-deltas)
-                  (if (map? new-val)
-                    (let [[subs new-val]
-                          (nested-subs subs deep-hooks ks new-val)]
-                      (recur deltas
-                             subs
-                             (cond-> adjusted-deltas
-                               (seq new-val)
-                               (conj
-                                (delta/summable-delta [:is ks [new-val]])))))
+          :is (if hook
+                (recur deltas
+                       (-> subs
+                           (assoc-in [(if (set? new-val)
+                                        :subs-many
+                                        :subs-one) ks]
+                                     new-val)
+                           (update-in [:unsubs] conj ks))
+                       adjusted-deltas)
+                (if (map? new-val)
+                  (let [[subs new-val]
+                        (nested-subs subs deep-hooks ks new-val)]
                     (recur deltas
                            subs
-                           (conj adjusted-deltas delta)))))
+                           (cond-> adjusted-deltas
+                             (seq new-val)
+                             (conj
+                              [:is ks new-val]))))
+                  (recur deltas
+                         subs
+                         (conj adjusted-deltas delta))))
           :in (if hook
                 (recur deltas
                        (update-in subs [:subs-many ks] into new-val)
@@ -445,7 +444,7 @@
   [service]
   (cached-service service {:accumulate
                            (fn [cache v]
-                             (update (or cache [:is]) 1
+                             (update (or cache [:is [] nil]) 2
                                      delta/add v))}))
 
 (defn- sum-cache
@@ -454,7 +453,7 @@
   [service]
   (cached-service service {:accumulate
                            (fn [cache v]
-                             (update (or cache [:is]) 1
+                             (update (or cache [:is [] nil]) 2
                                      delta/add v))
                            :mode :cache}))
 

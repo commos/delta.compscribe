@@ -26,11 +26,11 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:is #{0}]
+          {:deltas {0 [(delta/create [:is #{0}])
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :bar 42]]}}})
-        target (chan 1 delta/values)
+          {:deltas {0 [(delta/create [:is :bar 42])]}}})
+        target (chan 1 delta/sums)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" ["/bar/"]]
                                      0)]
@@ -46,11 +46,11 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:is :bar 0]
+          {:deltas {0 [(delta/create [:is :bar 0])
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 42]]}}})
-        target (chan 1 delta/values)
+          {:deltas {0 [(delta/create [:is :baz 42])]}}})
+        target (chan 1 delta/sums)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:bar ["/bar/"]}]
                                      0)]
@@ -66,11 +66,11 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :bar 0]
+          {:deltas {0 [(delta/create [:in :bar 0])
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 42]]}}})
-        target (chan 1 delta/values)
+          {:deltas {0 [(delta/create [:is :baz 42])]}}})
+        target (chan 1 delta/sums)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:bar ["/bar/"]}]
                                      0)]
@@ -87,14 +87,14 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :bar 0]
+          {:deltas {0 [(delta/create [:in :bar 0])
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 0]
+          {:deltas {0 [(delta/create [:is :baz 0])
                        block-bar]}}
           "/baz/"
-          {:deltas {0 [[:is 42]]}}})
-        target (chan 1 delta/values)
+          {:deltas {0 [(delta/create [:is 42])]}}})
+        target (chan 1 delta/sums)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:bar ["/bar/" {:baz ["/baz/"]}]}]
                                      0)]
@@ -109,14 +109,15 @@
 (deftest uncompscribe-root
   (let [foo-complete (chan)
         unsubs-bar (chan)
-        [subs-fn unsubs-fn [subscriptions unsubscribable]] (simulate-api
-                                           {"/foo/"
-                                            {:deltas {0 [[:in 0]
-                                                         [:ex 0]
-                                                         foo-complete]}}
-                                            "/bar/"
-                                            {:deltas {0 [[:is :bar 42]]}
-                                             :on-unsubs unsubs-bar}})
+        [subs-fn unsubs-fn [subscriptions unsubscribable]]
+        (simulate-api
+         {"/foo/"
+          {:deltas {0 [(delta/create [:in 0])
+                       (delta/create [:ex 0])
+                       foo-complete]}}
+          "/bar/"
+          {:deltas {0 [(delta/create [:is :bar 42])]}
+           :on-unsubs unsubs-bar}})
         target (chan)
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" ["/bar/"]]
@@ -125,8 +126,7 @@
      (test-within 1000
        (go
          (is (= 0 (<! unsubs-bar)))
-         (close! foo-complete)
-                  
+         (close! foo-complete)                  
          (is (empty? (reduce delta/add nil (<! (a/into [] target))))))))))
 
 (deftest uncompscribe-one
@@ -135,11 +135,11 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:is :bar 0]
-                       [:ex :bar]
+          {:deltas {0 [(delta/create [:is :bar 0])
+                       (delta/create [:ex :bar])
                        foo-complete]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 42]]}
+          {:deltas {0 [(delta/create [:is :baz 42])]}
            :on-unsubs unsubs-bar}})
         target (chan)
         end-subscription (compscribe target subs-fn unsubs-fn
@@ -158,11 +158,11 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :bar 0]
-                       [:ex :bar]
+          {:deltas {0 [(delta/create [:in :bar 0])
+                       (delta/create [:ex :bar])
                        foo-complete]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 42]]}
+          {:deltas {0 [(delta/create [:is :baz 42])]}
            :on-unsubs unsubs-bar}})
         target (chan)
         end-subscription (compscribe target subs-fn unsubs-fn
@@ -181,13 +181,13 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :a 0]
-                       [:in :b 0]
+          {:deltas {0 [(delta/create [:in :a 0])
+                       (delta/create [:in :b 0])
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 42]
+          {:deltas {0 [(delta/create [:is :baz 42])
                        block-bar]}}})
-        target (chan 1 (comp delta/values
+        target (chan 1 (comp delta/sums
                              (drop 1)))
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:a ["/bar/"]
@@ -211,15 +211,15 @@
         [subs-fn unsubs-fn [subscriptions unsubscribable]]
         (simulate-api
          {"/foo/"
-          {:deltas {0 [[:in :a 0]
-                       [:in :b 0]
+          {:deltas {0 [(delta/create [:in :a 0])
+                       (delta/create [:in :b 0])
                        block-foo]}}
           "/bar/"
-          {:deltas {0 [[:is :baz 0]
+          {:deltas {0 [(delta/create [:is :baz 0])
                        block-bar]}}
           "/baz/"
-          {:deltas {0 [[:is {:test-val 42}]]}}})
-        target (chan 1 (comp delta/values
+          {:deltas {0 [(delta/create [:is {:test-val 42}])]}}})
+        target (chan 1 (comp delta/sums
                              (drop 1)))
         end-subscription (compscribe target subs-fn unsubs-fn
                                      ["/foo/" {:a ["/bar/" {:baz ["/baz/"]}]
