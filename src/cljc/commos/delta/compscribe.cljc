@@ -1,5 +1,7 @@
 (ns commos.delta.compscribe
   (:require [commos.delta :as delta]
+            [commos.delta.cache :as dc]
+            [commos.service :as service]
             [#?(:clj clojure.core.async
                 :cljs cljs.core.async) :refer [chan close!
                                                <! >!
@@ -204,14 +206,6 @@
             (close! target)))))
     m))
 
-(defprotocol IStream
-  (subscribe [this spec ch]
-    "Stream commos deltas on core.async channel ch.  ch is expected to
-    be used with only one subscription.")
-  (cancel [this ch]
-    "Asynchronously end the subscription associated with ch and close
-    ch."))
-
 (defn- compscribe*
   [outer-target source-service compscribe-service
    [endpoint direct-hooks deep-hooks :as conformed-spec] id]
@@ -224,14 +218,14 @@
                  (let [ks' (cond-> ks
                              many? (conj id))
                        xch (chan 1 (delta/nest ks'))]
-                   (subscribe compscribe-service
-                              [(get direct-hooks ks) id]
-                              xch)
+                   (service/request compscribe-service
+                                    [(get direct-hooks ks) id]
+                                    xch)
                    (vswap! subs assoc ks' xch)
                    ;; xch will be closed by the subscribed-composition
                    (mix-in target-mix xch)))
         ch-in (chan)]
-    (subscribe source-service [endpoint id] ch-in)
+    (service/request source-service [endpoint id] ch-in)
     (go-loop []
       (if-some [delta (<! ch-in)]
         (let [[{:keys [subs-one subs-many unsubs]} delta]
@@ -246,7 +240,7 @@
                                          (some-> (find @subs ks)
                                                  (vector)))))
                        distinct)]
-            (cancel compscribe-service xch)
+            (service/cancel compscribe-service xch)
             (mix-out target-mix xch)
             (vswap! subs dissoc ks))
 
@@ -265,8 +259,8 @@
         (do
           (close! target) ;; implicit mix-out
           (doseq [xch (vals @subs)]
-            (cancel compscribe-service xch)))))
-    (fn [] (cancel source-service ch-in))))
+            (service/cancel compscribe-service xch)))))
+    (fn [] (service/cancel source-service ch-in))))
 
 (defn- swap-out!
   "Atomically dissocs k in atom, returns k"
@@ -298,36 +292,29 @@
   (doto (chan)
     (on-close-pipe target on-close)))
 
-(defn- caching
-  [service cached-service]
-  (vary-meta service assoc ::cached-service cached-service))
-
-(defn- cached
-  [service]
-  (::cached-service (meta service) service))
-
 (defn- compscribe-service
   [source-service]
   (let [subscriptions (atom {})]
     (reify
-      IStream
-      (subscribe [this spec target]
+      service/IService
+      (request [this spec target]
         (let [[spec id] spec
               [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
-              subs-target (on-close-source target #(cancel this target))]
+              subs-target (on-close-source target
+                                           #(service/cancel this target))]
           (if (and (empty? direct-hooks)
                    (empty? deep-hooks))
             ;; OPT: If there is nothing to compscribe, directly reach
             ;; through to the source-service:
             (do
-              (subscribe source-service [endpoint id] subs-target)
+              (service/request source-service [endpoint id] subs-target)
               (swap! subscriptions assoc target
-                     #(cancel source-service subs-target)))
+                     #(service/cancel source-service subs-target)))
             (do
               (swap! subscriptions assoc target
                      (compscribe* subs-target
                                   source-service
-                                  (cached this)
+                                  (service/cached this)
                                   spec
                                   id))))))
       (cancel [this target]
@@ -390,148 +377,82 @@
                      true))))))
     m))
 
-(defn- cached-service
-  [service opts]
-  (let [subscribe-ch (chan)
-        cancel-ch (chan)]
-    (go-loop [subs {}
-              chs {}]
-      (let [[msg port] (alts! [subscribe-ch
-                               cancel-ch])]
-        (condp identical? port
-          subscribe-ch
-          (let [[this spec target] msg
-                [m :as cache]
-                (or (get subs spec)
-                    (let [ch-in (chan)
-                          m (caching-mult ch-in opts)]
-                      (subscribe (caching service this)
-                                 spec
-                                 ch-in)
-                      [m 0 ch-in]))
-                target-step (on-close-source target
-                                             #(cancel this target))]
-            (tap m target-step)
-            (recur (assoc subs spec (update cache 1 inc))
-                   (assoc chs target [spec target-step])))
-          cancel-ch
-          (let [[this target] msg]
-            (if-let [[spec target-step] (get chs target)]
-              (let [[m m-chs ch-in :as cache] (get subs spec)
-                    m-chs (dec m-chs)
-                    chs (dissoc chs target)]
-                (untap m target-step)
-                (close! target-step)
-                (if (zero? m-chs)
-                  (do
-                    (cancel service ch-in)
-                    (recur (dissoc subs spec)
-                           chs))
-                  (recur (assoc subs spec (assoc cache 1 m-chs))
-                         chs)))
-              (recur subs
-                     chs))))))
-    (reify
-      IStream
-      (subscribe [this spec target]
-        (put! subscribe-ch [this spec target]))
-      (cancel [this target]
-        (put! cancel-ch [this target])))))
-
-(defn- hybrid-cache
-  "Caches on endpoints.  Sends the current sum to a new subscriber,
-  continues with deltas."
-  [service]
-  (cached-service service {:accumulate
-                           (fn [cache v]
-                             (update (or cache [:is [] nil]) 2
-                                     delta/add v))}))
-
-(defn- sum-cache
-  "Caches on endpoints.  Sends the current sum to a new subscriber,
-  continues with sums."
-  [service]
-  (cached-service service {:accumulate
-                           (fn [cache v]
-                             (update (or cache [:is [] nil]) 2
-                                     delta/add v))
-                           :mode :cache}))
-
 (defn compscriber
-  "Return a service that makes, triggers and transforms subscriptions
-  at source, an IStream implementation, so that they add up to one
-  map.
+  "Return a service for requesting composite streams of multiple
+  commos.delta streams.
 
-  When making a subscription, specify endpoints you want to use and
-  their desired nesting in spec so:
-
-  [endpoint (spec-map | spec)?]
-  (Another spec may only be used directly in a spec if endpoint
-  streams a set.)
-  
-  endpoint may be any value recognized by the source you pass.
-
-  spec-map is a map {(key (spec-map | spec))+}
-
-  1. If the value streamed at key is not a set, it is subscribed at
-  the specified endpoint and the subscription is transformed to assert
-  at key.
-
-  2. If the value streamed at key is a set, its elements are
-  subscribed at the specified endpoint and are transformed to assert a
-  map {(set-elem streamed-val)+} at key.
-
-  Service makes subscriptions at source, with
-
-  [endpoint (value | set-elem)] as spec argument.
-
-  You can make subscriptions at service with
+  Requests can be made with
 
   [spec id?]
 
-  as the spec argument.
+  as the request-spec argument.
+
+  spec is a nested datastructure describing a composition:
+  
+  [endpoint (spec-map | spec)?]
+  (Another spec may only be used directly in a spec if endpoint
+  streams a set.)
+
+  endpoint may be any endpoint recognized by the service you pass
+  where compscriber makes requests with 
+
+  [endpoint id] as request-spec argument.
+
+  spec-map is a map {(key (spec-map | spec))+}
+  
+  Deltas are transformed and trigger requests according to these
+  rules:
+
+  1. If a value streamed at key is not a set, it is requested and
+  transformed to assert at key.
+
+  2. If a value streamed at key is a set, its elements are requested
+  at the specified endpoint and are transformed to assert a map
+  {(id streamed-val)+} at key.
 
   Example spec:
 
-  [\"users\" {:user/orders [\"orders\" {:order/invoice [\"invoices\"]
-                                        :order/item [\"items\"]}]
-              :user/cart [\"items\"]}]
+  [:users {:user/orders [:orders {:order/invoice [:invoices]
+                                  :order/item [:items]}]
+           :user/cart [:items]}]
 
-  Subscriptions are synchronized, meaning nested subscriptions are
+  Subscriptions are coordinated, meaning nested subscriptions are
   streamed always after a delta that started them and never after a
   delta that stopped them.
 
-  By default, the service caches on subscription identifiers both made
-  by the user and internally, using sum caching.  Thus compscribe
-  streams only :is deltas with the whole compscribed value.  Nested
-  values streamed by equal specs are (memory) identical.
+  Caching:
 
-  Depending on your specs, the service may subscribe equal specs at
-  the source.  Passing a cached service is recommended.
+  By default, the service caches on subscription identifiers both made
+  by the user and internally, using sum caching (see
+  commos.delta.sum-cache).  Thus compscribe streams only :is deltas
+  with the whole compscribed value.  Nested values streamed by equal
+  specs are (memory) identical.
 
   Use the :cache opt for different caching behavior.
 
+  Depending on your specs, the service may subscribe equal specs at
+  the source.  Passing a cached service is thus recommended.
+
+  Refer to commos.delta.cache and commos.service to learn more about
+  service caching.
+
   Opts:
 
-  :cache - A function transforming a service.  
-
-  At the time, :batch deltas are not recomposed to a whole if they
-  start nested subscriptions.  This means that a partial :batch delta
-  may be streamed before subscriptions derived from it are streamed."
+  :cache - A function transforming a service."
   [source & {:keys [cache] :as opts
-             :or {cache sum-cache}}]
+             :or {cache dc/sum-cache}}]
   (let [service (-> source
                     (compscribe-service)
                     (cache))
         compile-spec (memoize compile-spec)]
     (reify
-      IStream
-      (subscribe [_ spec target]
-        (subscribe service 
-                   (update spec 0 compile-spec)
-                   target))
+      service/IService
+      (request [_ spec target]
+        (service/request service 
+                         (update spec 0 compile-spec)
+                         target))
       (cancel [_ target]
-        (cancel service target)))))
+        (service/cancel service target)))))
 
 (defn compscribe
   "Internally creates a compscribe service and makes the subscription
@@ -540,18 +461,18 @@
   {:arglists '([target-ch service spec id])}
   ([target-ch service spec id]
    (let [service (compscriber service)]
-     (subscribe service [spec id] target-ch)
-     #(cancel service target-ch)))
+     (service/request service [spec id] target-ch)
+     #(service/cancel service target-ch)))
   ([target-ch subs-fn unsubs-fn spec id]
    (compscribe target-ch
                (let [chs (atom {})]
                  (reify
-                   IStream
-                   (subscribe [this [endpoint id] target]
+                   service/IService
+                   (request [this [endpoint id] target]
                      (let [ch-in (subs-fn endpoint id)]
                        (swap! chs assoc target ch-in)
                        (on-close-pipe ch-in target
-                                      #(cancel this target))))
+                                      #(service/cancel this target))))
                    (cancel [_ ch]
                      (some-> (swap-out! chs ch)
                              (unsubs-fn)))))
