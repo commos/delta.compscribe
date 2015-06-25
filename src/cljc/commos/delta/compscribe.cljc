@@ -321,62 +321,6 @@
         (when-let [unsubs-fn (swap-out! subscriptions target)]
           (unsubs-fn))))))
 
-(defn- caching-mult
-  [ch {:keys [accumulate
-              mode]
-       :or {mode :value}}]
-  (let [tap-ch (chan)
-        chs (atom #{})
-        dctr (atom nil)
-        dchan (chan 1)
-        done (fn [_] (when (zero? (swap! dctr dec))
-                       (put! dchan true)))
-        m (reify
-            a/Mux
-            (muxch* [_] ch)
-            a/Mult
-            (tap* [_ ch close?]
-              (if close?
-                (put! tap-ch ch)
-                (throw (UnsupportedOperationException.
-                        "close?=false not supported"))))
-            (untap* [_ ch]
-              (swap! chs disj ch))
-            (untap-all* [_] (throw (UnsupportedOperationException.))))]
-    (go-loop [cache nil
-              receiving? true]
-      (let [[v port] (alts! (cond-> [tap-ch]
-                              receiving? (conj ch)) :priority true)]
-        (condp identical? port
-          tap-ch
-          (do (when (and (or (nil? cache)
-                             (>! v cache)))
-                (if receiving?
-                  (swap! chs conj v)
-                  (close! v)))
-              (recur cache
-                     receiving?))
-          ch
-          (if (nil? v)
-            (do
-              (run! close! @chs)
-              (reset! chs nil)
-              (recur cache
-                     false))
-            (let [cache (accumulate cache v)
-                  v (case mode
-                      :cache cache
-                      :value v)]
-              (when-let [chs (seq @chs)]
-                (reset! dctr (count chs))
-                (doseq [ch chs]
-                  (when-not (put! ch v done)
-                    (a/untap* m ch)))
-                (<! dchan))
-              (recur cache
-                     true))))))
-    m))
-
 (defn compscriber
   "Return a service for requesting composite streams of multiple
   commos.delta streams.
