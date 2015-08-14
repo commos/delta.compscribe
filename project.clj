@@ -1,4 +1,4 @@
-(defproject org.commos/delta.compscribe "0.2.0"
+(defproject org.commos/delta.compscribe "0.2.1"
   :description "Stream and combine commos.deltas from multiple endpoints"
   :url "http://github.com/commos/delta.compscribe"
   :license {:name "Eclipse Public License"
