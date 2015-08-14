@@ -10,158 +10,8 @@
                                                pipe
                                                #?@(:clj [go go-loop])
                                                tap untap] :as a]
-            [clojure.walk :refer [prewalk postwalk]]
-            [commos.shared.core :refer [flatten-keys]])
+            [clojure.walk :refer [prewalk postwalk]])
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop go]])))
-
-(defn- vsplit-at
-  "Like split-at, but for vectors."
-  [n v]
-  [(subvec v 0 n) (subvec v n)])
-
-(defn- group-by-pks
-  "Transform a flattened map ks->v into a map pks->[[rks ks v]+] where
-  pks is a partial ks and rks the complementary rest.  E. g.:
-  {[:foo :bar] 42} becomes {[:foo] ([[:bar] [:foo :bar]
-  42]), [] ([[:foo :bar] [:foo :bar] 42])}."
-  [m]
-  (reduce-kv (fn [acc ks v]
-               (reduce (fn [acc [pks rks]]
-                         (update acc pks conj [rks ks v]))
-                       acc
-                       (map #(vsplit-at % ks)
-                            (range (count ks)))))
-             {}
-             m))
-
-(defn- compile-spec
-  "Recursively transform spec [endpoint hooks] [endpoint
-  flattened-keys-hooks flattened-keys-hooks-grouped-by-pks hooks].
-  The resulting structure provides fast lookups required during live
-  dispatch.  Returns compiled spec untransformed."
-  [spec]
-  (let [spec? #(::spec (meta %))
-        mark-spec #(vary-meta % assoc ::spec true)]
-    (cond-> spec
-      (not (spec? spec))
-      (->> (mark-spec)
-           (prewalk (fn [form]
-                      (if (spec? form)
-                        (let [[endpoint specs] form]
-                          (mark-spec
-                           (if (vector? specs)
-                             [endpoint {[] (mark-spec specs)}]
-                             (let [specs (flatten-keys specs)]
-                               [endpoint (zipmap (keys specs)
-                                                 (map mark-spec
-                                                      (vals specs)))]))))
-                        form)))
-           (postwalk (fn [form]
-                       (if (spec? form)
-                         (let [[endpoint specs] form]
-                           (conj form (group-by-pks specs)))
-                         form)))))))
-
-(defn- dissoc-in
-  ;; from org.clojure/core.incubator, copy & pasted due to lack of
-  ;; clojurescript support
-  "Dissociates an entry from a nested associative structure returning a new
-  nested structure. keys is a sequence of keys. Any empty maps that result
-  will not be present in the new structure."
-  [m [k & ks :as keys]]
-  (if ks
-    (if-let [nextmap (get m k)]
-      (let [newmap (dissoc-in nextmap ks)]
-        (if (seq newmap)
-          (assoc m k newmap)
-          (dissoc m k)))
-      m)
-    (dissoc m k)))
-
-(defn- nested-subs
-  "Extract necessary subscriptions/unsubscriptions implied by updating
-  the new-val at ks.  Returns [subs new-val] where new-val has the
-  subscribed ids removed and subs has the extracted
-  subscriptions/unsubscriptions merged onto it.
-
-  Pass nil as new-val to only get unsubscriptions."
-  [subs deep-hooks ks new-val]
-  (reduce (fn [[subs new-val] [rks ks _]]
-            (if-let [val (get-in new-val rks)]
-              [(if (coll? val)
-                 (update-in subs [:subs-many ks] into val)
-                 (-> subs
-                     (assoc-in [:subs-one ks] val)
-                     (update-in [:unsubs] conj ks)))
-               (dissoc-in new-val ks)]
-              [(update-in subs [:unsubs] conj ks)
-               new-val]))
-          [subs new-val]
-          (get deep-hooks ks)))
-
-(defn- extract-hooks
-  "Return a map of required subscriptions and unsubscriptions with the
-  following keys:
-
-  :subs-one ks->val - subscribe hook at ks with val
-  :subs-many ks->vals - subscribe hooks at ks with vals
-  :unsubs [ks+] - unsubscribe subscriptions at ks
-
-  Subs and unsubs may overlap, unsubs are assumed to be applied
-  first."
-  [[_ direct-hooks deep-hooks :as conformed-spec] delta]
-  (loop [[delta & deltas] (delta/unpack delta)
-         subs {}
-         adjusted-deltas []]
-    (if delta
-      (let [[op ks new-val] delta
-            hook (get direct-hooks ks)]
-        (case op
-          :is (if hook
-                (recur deltas
-                       (-> subs
-                           (assoc-in [(if (set? new-val)
-                                        :subs-many
-                                        :subs-one) ks]
-                                     new-val)
-                           (update-in [:unsubs] conj ks))
-                       adjusted-deltas)
-                (if (map? new-val)
-                  (let [[subs new-val]
-                        (nested-subs subs deep-hooks ks new-val)]
-                    (recur deltas
-                           subs
-                           (cond-> adjusted-deltas
-                             (seq new-val)
-                             (conj
-                              [:is ks new-val]))))
-                  (recur deltas
-                         subs
-                         (conj adjusted-deltas delta))))
-          :in (if hook
-                (recur deltas
-                       (update-in subs [:subs-many ks] into new-val)
-                       adjusted-deltas)
-                (recur deltas
-                       subs
-                       (conj adjusted-deltas delta)))
-          :ex (if hook
-                (recur deltas
-                       (update-in subs [:unsubs] into
-                                  (map (partial conj ks) new-val))
-                       (conj adjusted-deltas delta))
-                (recur deltas
-                       (update-in subs [:unsubs] into
-                                  (mapcat
-                                   (fn [k]
-                                     (let [ks (conj ks k)]
-                                       (if (contains? direct-hooks ks)
-                                         [ks]
-                                         (if-let [nested (get deep-hooks ks)]
-                                           (map second nested)))))
-                                   new-val))
-                       (conj adjusted-deltas delta)))))
-      [subs (delta/pack adjusted-deltas)])))
 
 (defprotocol ClosingMix
   "Implementation detail, subject to change."
@@ -206,9 +56,80 @@
             (close! target)))))
     m))
 
+(defn- extract-hooks
+  "Return a map of required subscriptions and unsubscriptions with the
+  following keys:
+
+  :subs-one ks->val - subscribe hook at ks with val
+  :subs-many ks->vals - subscribe hooks at ks with vals
+  :unsubs [ks+] - unsubscribe subscriptions at ks
+
+  Subs and unsubs may overlap, unsubs are assumed to be applied
+  first."
+  [spec-map delta]
+  (loop [[delta & deltas] (delta/unpack delta)
+         subs {}
+         adjusted-deltas []]
+    (if delta
+      (let [[op ks new-val] delta
+            hook (get-in spec-map ks)]
+        ;; TODO: refactor else recurs
+        (case op
+          :is
+          (if hook
+            (cond (map? hook)
+                  (if (map? new-val)
+                    (recur (concat (delta/implied-deltas {} delta)
+                                   deltas)
+                           subs
+                           adjusted-deltas)
+                    (let [msg (str "Can't assert non-map at "
+                                   (pr-str ks))]
+                      (throw
+                       #?(:clj
+                          (IllegalArgumentException. msg)
+                          :cljs
+                          msg))))
+
+                  (vector? hook)
+                  (recur deltas
+                         (-> subs
+                             (assoc-in [(if (coll? new-val)
+                                          :subs-many
+                                          :subs-one) ks]
+                                       new-val)
+                             (update-in [:unsubs] conj ks))
+                         adjusted-deltas)
+
+                  :else
+                  (let [msg (str "Invalid spec"  (pr-str hook))]
+                    (throw
+                     #?(:clj
+                        (IllegalArgumentException. msg)
+                        :cljs
+                        msg))))
+            (recur deltas
+                   subs
+                   (conj adjusted-deltas delta)))
+          :in (if hook
+                (recur deltas
+                       (update-in subs [:subs-many ks] into new-val)
+                       adjusted-deltas)
+                (recur deltas
+                       subs
+                       (conj adjusted-deltas delta)))
+          :ex (if hook
+                (recur deltas
+                       (update-in subs [:unsubs] into
+                                  (map (partial conj ks) new-val))
+                       (conj adjusted-deltas delta))
+                (recur deltas
+                       subs
+                       (conj adjusted-deltas delta)))))
+      [subs (delta/pack adjusted-deltas)])))
+
 (defn- compscribe*
-  [outer-target source-service compscribe-service
-   [endpoint direct-hooks deep-hooks :as conformed-spec] id]
+  [outer-target ch-in compscribe-service spec-map]
   (let [;; Once intercepted, events need to go through target-mix so
         ;; that mix-ins and mix-outs have synchronous effects
         target (chan)
@@ -219,27 +140,20 @@
                              many? (conj id))
                        xch (chan 1 (delta/nest ks'))]
                    (service/request compscribe-service
-                                    [(get direct-hooks ks) id]
+                                    [(get-in spec-map ks) id]
                                     xch)
                    (vswap! subs assoc ks' xch)
                    ;; xch will be closed by the subscribed-composition
-                   (mix-in target-mix xch)))
-        ch-in (chan)]
-    (service/request source-service [endpoint id] ch-in)
+                   (mix-in target-mix xch)))]
     (go-loop []
       (if-some [delta (<! ch-in)]
-        (let [[{:keys [subs-one subs-many unsubs]} delta]
-              (extract-hooks conformed-spec delta)
-
-              subs-by-pks (group-by-pks @subs)]
-          (doseq [[ks xch]
-                  (->> unsubs
-                       (mapcat (fn [ks]
-                                 (concat (->> (get subs-by-pks ks)
-                                              (map rest))
-                                         (some-> (find @subs ks)
-                                                 (vector)))))
-                       distinct)]
+        (let [[{:keys [subs-one subs-many unsubs]} delta :as dbg]
+              (extract-hooks spec-map delta)]
+          (doseq [[ks xch] (filter (fn [[ks v]]
+                                     (some (fn [uks]
+                                             (= uks (take (count uks) ks)))
+                                           unsubs))
+                                   @subs)]
             (service/cancel compscribe-service xch)
             (mix-out target-mix xch)
             (vswap! subs dissoc ks))
@@ -259,8 +173,7 @@
         (do
           (close! target) ;; implicit mix-out
           (doseq [xch (vals @subs)]
-            (service/cancel compscribe-service xch)))))
-    (fn [] (service/cancel source-service ch-in))))
+            (service/cancel compscribe-service xch)))))))
 
 (defn- swap-out!
   "Atomically dissocs k in atom, returns k"
@@ -299,27 +212,25 @@
       service/IService
       (request [this spec target]
         (let [[spec id] spec
-              [endpoint direct-hooks deep-hooks :as spec] (compile-spec spec)
+              [endpoint spec-map] spec
               subs-target (on-close-source target
                                            #(service/cancel this target))]
-          (if (and (empty? direct-hooks)
-                   (empty? deep-hooks))
+          (if (empty? spec-map)
             ;; OPT: If there is nothing to compscribe, directly reach
             ;; through to the source-service:
             (do
               (service/request source-service [endpoint id] subs-target)
-              (swap! subscriptions assoc target
-                     #(service/cancel source-service subs-target)))
-            (do
-              (swap! subscriptions assoc target
-                     (compscribe* subs-target
-                                  source-service
-                                  (service/cached this)
-                                  spec
-                                  id))))))
+              (swap! subscriptions assoc target subs-target))
+            (let [ch-in (chan)]
+              (compscribe* subs-target
+                           ch-in
+                           (service/cached this)
+                           spec-map)
+              (service/request source-service [endpoint id] ch-in)
+              (swap! subscriptions assoc target ch-in)))))
       (cancel [this target]
-        (when-let [unsubs-fn (swap-out! subscriptions target)]
-          (unsubs-fn))))))
+        (when-let [ch (swap-out! subscriptions target)]
+          (service/cancel source-service ch))))))
 
 (defn compscriber
   "Return a service for requesting composite streams of multiple
@@ -387,13 +298,12 @@
              :or {cache dc/sum-cache}}]
   (let [service (-> source
                     (compscribe-service)
-                    (cache))
-        compile-spec (memoize compile-spec)]
+                    (cache))]
     (reify
       service/IService
       (request [_ spec target]
         (service/request service 
-                         (update spec 0 compile-spec)
+                         spec
                          target))
       (cancel [_ target]
         (service/cancel service target)))))
