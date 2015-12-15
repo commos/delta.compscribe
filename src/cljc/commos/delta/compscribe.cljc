@@ -267,9 +267,9 @@
 
   Example spec:
 
-  [:users {:user/orders [:orders {:order/invoice [:invoices]
-                                  :order/item [:items]}]
-           :user/cart [:items]}]
+  [:users [:user {:user/orders [:order {:order/invoice [:invoice]
+                                        :order/item [:item]}]
+                  :user/cart [:item]}]]
 
   Subscriptions are coordinated, meaning nested subscriptions are
   streamed always after a delta that started them and never after a
