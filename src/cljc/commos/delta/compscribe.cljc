@@ -57,15 +57,20 @@
     m))
 
 (defn- extract-hooks
-  "Return a map of required subscriptions and unsubscriptions with the
-  following keys:
+  "Return [hooks delta]
+
+  Where hooks is a map of required subscriptions and unsubscriptions
+  with the following keys:
 
   :subs-one ks->val - subscribe hook at ks with val
   :subs-many ks->vals - subscribe hooks at ks with vals
   :unsubs [ks+] - unsubscribe subscriptions at ks
 
   Subs and unsubs may overlap, unsubs are assumed to be applied
-  first."
+  first.
+
+  delta is adjusted so that it does not assert at keys that are
+  compscribed."
   [spec-map delta]
   (loop [[delta & deltas] (delta/unpack delta)
          subs {}
@@ -331,3 +336,7 @@
                      (some-> (swap-out! chs ch)
                              (unsubs-fn)))))
                spec id)))
+
+;; New
+
+
