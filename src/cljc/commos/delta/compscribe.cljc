@@ -56,7 +56,7 @@
             (close! target)))))
     m))
 
-(defn- extract-hooks
+(defn extract-hooks
   "Return [hooks delta]
 
   Where hooks is a map of required subscriptions and unsubscriptions
@@ -337,6 +337,47 @@
                              (unsubs-fn)))))
                spec id)))
 
-;; New
+;; Util
+(defn request-spec
+  "Return the request spec from compscribe-request-spec"
+  [[[partial-request-spec _] id]]
+  [partial-request-spec id])
 
+(defn compscribe-spec
+  "Return the compscribe spec of compscribe-request-spec"
+  [[[_ compscribe-spec] _]]
+  compscribe-spec)
 
+(defn query-crs
+  "Recursively query the full sum of compscribe-request-spec in
+  rs->sum, given that its there."
+  [rs->sum crs]
+  (let [rs (request-spec crs)
+        cs (compscribe-spec crs)
+        sum (rs->sum rs)
+        [{:keys [subs-one subs-many] :as hooks} _]
+        (extract-hooks cs [:is [] sum])]
+    
+    (merge (if (set? sum) ; retain non compscribed keys in a map 
+             {}
+             sum)
+           (reduce (fn [sum [ks vs]]
+                     (let [child-cs (get-in cs ks)]
+                       (reduce (fn [sum v]
+                                 (assoc-in sum (conj ks v)
+                                           (query-crs
+                                            rs->sum
+                                            [child-cs v])))
+                               {}
+                               vs)))
+                   {}
+                   subs-many)
+           (reduce (fn [sum [ks v]]
+                     (assert (seq ks) "subs-one not possible on root")
+                     (let [child-cs (get-in cs ks)]
+                       (assoc-in sum ks
+                                 (query-crs
+                                  rs->sum
+                                  [child-cs v]))))
+                   {}
+                   subs-one))))
